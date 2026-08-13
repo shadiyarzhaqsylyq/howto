@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <fcntl.h>
 #include <unistd.h>
-
+// open(), pwrite(), pread()
 int main() {
     // 1. Open the file to get a file descriptor (int)
     int fd = open("example.txt", O_RDWR | O_CREAT, 0644);
