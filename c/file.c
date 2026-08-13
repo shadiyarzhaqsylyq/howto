@@ -4,7 +4,11 @@
 // open(), pwrite(), pread()
 int main() {
     // 1. Open the file to get a file descriptor (int)
-    int fd = open("example.txt", O_RDWR | O_CREAT, 0644);
+    int fd = open("example.txt", O_RDWR | O_CREAT, 0644); // can use O_EXCL - 
+    // O_RDWR(read\write) |(or) O_CREAT(If it does not exit). 
+    // 0644 - 6(owner/me) can Read(4) + Write(2) = 6. 0 tells that its octal number
+    // 44 - 4(Group), 4(Everyone else)
+    // 0644 tells that only I can read and write, everyone else can only read.
     if (fd == -1) {
         perror("Error opening file");
         return 1;
