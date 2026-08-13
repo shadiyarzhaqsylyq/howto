@@ -1,4 +1,3 @@
-it is better to use like this?
 package main
 import "core:fmt"
 
