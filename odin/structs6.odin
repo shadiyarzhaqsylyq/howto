@@ -1,13 +1,13 @@
 package main
 import "core:fmt"
 
-// 1. Define the union type
+
 VectorValue :: union {
     f32,
     [3]f32,
 }
 
-// 2. Place it inside the struct
+
 Entity :: struct {
     name:  string,
     id:    u32,
