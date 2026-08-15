@@ -1,9 +1,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#define T 2 // Min degree
+
 
 typedef struct {
-    bool is_leaf;
+    int is_leaf;// 1 - true, 0 - false
     int  num_keys;
 } NodeHeader;
 
