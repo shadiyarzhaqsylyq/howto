@@ -32,3 +32,16 @@ main :: proc() {
     fmt.println("Lowest Relation Index:", lowest_idx)  // Output: 0
     fmt.println("Element Count:", count)              // Output: 3
 }
+
+
+/*
+Relation,Bit position,Binary value,Decimal value
+R1,bit 0,0b00000001,1
+R2,bit 1,0b00000010,2
+R3,bit 2,0b00000100,4
+R4,bit 3,0b00001000,8
+R5,bit 4,0b00010000,16
+Combining R1,R3,R4 = 13 = 00001101
+
+
+*/
