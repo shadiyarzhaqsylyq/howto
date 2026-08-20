@@ -3,7 +3,7 @@ package main
 import "core:fmt"
 import "core:hash/xxhash"
 import "core:mem"
-
+// cast, xxhash
 main :: proc() {
     // 1. In Odin, strings can be cast or passed directly as a byte slice []u8
     input_text := "Hello"
