@@ -1,30 +1,33 @@
 package main
-//Robin Hood Map N > 16
+
 import "core:fmt"
-
+//Robin Hood Hash Map N > 12
 Relation :: enum u8 { R1, R2, R3, R4, R5 }
-Relations :: bit_set[Relation; u64]
+Relations :: bit_set[Relation; u8]
 
-BestPlan :: struct {
+Join_Type :: enum u8 {
+    Index_Scan,
+    Hash_Join,
+    Nested_Loop,
+}
+
+Best_Plan :: struct {
     cost:      f64,
-    join_type: string,
+    join_type: Join_Type,
 }
 
 main :: proc() {
-    // 1. Map directly keyed by the Relations bit_set
-    // Pass initial capacity to avoid re-hash allocations during DP
-    memo := make(map[Relations]BestPlan, 1024) 
+    // 1. Idiomatic approach: Map directly on the bit_set type
+    memo := make(map[Relations]Best_Plan)
     defer delete(memo)
 
     set_a: Relations = {.R1, .R3}
     set_b: Relations = {.R2, .R4, .R5}
 
-    // 2. Direct key assignment (no transmute needed!)
-    memo[set_a] = BestPlan{cost = 15.4, join_type = "IndexScan"}
-    memo[set_b] = BestPlan{cost = 89.1, join_type = "HashJoin"}
+    memo[set_a] = Best_Plan{cost = 15.4, join_type = .Index_Scan}
+    memo[set_b] = Best_Plan{cost = 89.1, join_type = .Hash_Join}
 
-    // 3. Direct lookup using set literals
-    if plan, ok := memo[{.R1, .R3}]; ok {
-        fmt.println("Sub-plan cost for {.R1, .R3}:", plan.cost)
+    if plan, ok := memo[set_a]; ok {
+        fmt.println("Sub-plan cost for {.R1, .R3}:", plan.cost, plan.join_type)
     }
 }
