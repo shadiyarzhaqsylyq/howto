@@ -1,0 +1,1 @@
+//Lemire's algorithm
