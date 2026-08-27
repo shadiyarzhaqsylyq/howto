@@ -2,7 +2,7 @@ package main
 
 import "core:fmt"
 //Robin Hood Hash Map N > 16
-Relation :: enum u8 { R1, R2, R3, R4, R5 }
+Relation :: enum u8 { R1, R2, R3 }
 Relations :: bit_set[Relation; u8]
 
 Join_Type :: enum u8 {
@@ -22,7 +22,7 @@ main :: proc() {
     defer delete(memo)
 
     set_a: Relations = {.R1, .R3}
-    set_b: Relations = {.R2, .R4, .R5}
+    set_b: Relations = {.R1, .R2, .R3}
 
     memo[set_a] = Best_Plan{cost = 15.4, join_type = .Index_Scan}
     memo[set_b] = Best_Plan{cost = 89.1, join_type = .Hash_Join}
