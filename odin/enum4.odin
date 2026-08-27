@@ -1,5 +1,5 @@
 package main
-
+//Robin Hood Map N > 16
 import "core:fmt"
 
 Relation :: enum u8 { R1, R2, R3, R4, R5 }
