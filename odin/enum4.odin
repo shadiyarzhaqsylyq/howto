@@ -31,3 +31,20 @@ main :: proc() {
         fmt.println("Sub-plan cost for {.R1, .R3}:", plan.cost, plan.join_type)
     }
 }
+/*
+
+    set1: Relations = {.R1, .R3, .R4}
+    set2: Relations = {.R3, .R5}
+
+    // 2. Native set operations (compiles to bitwise OR, AND, etc.)
+    union_set := set1 + set2       // Bitwise OR
+    intersect := set1 & set2       // Bitwise AND
+    count     := card(set1)        // Built-in popcount! Returns 3
+
+    // 3. Convert bitset to raw u64 mask
+    raw_mask := transmute(u64)set1  // Equals 13 (0b00001101)
+
+    // 4. Bit manipulation intrinsic
+    lowest_idx := bits.count_trailing_zeros(raw_mask) // Returns 0 (R1)
+
+*/
