@@ -2,7 +2,7 @@ package main
 
 import "core:fmt"
 import "core:math/bits"
-
+//Array Indexing <= 16
 // Define relations as an Enum
 Relation :: enum u8 {
     R1, R2, R3, R4, R5,
