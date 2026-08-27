@@ -1,7 +1,7 @@
 package main
 
 import "core:fmt"
-//Robin Hood Hash Map N > 12
+//Robin Hood Hash Map N > 16
 Relation :: enum u8 { R1, R2, R3, R4, R5 }
 Relations :: bit_set[Relation; u8]
 
@@ -46,5 +46,13 @@ main :: proc() {
 
     // 4. Bit manipulation intrinsic
     lowest_idx := bits.count_trailing_zeros(raw_mask) // Returns 0 (R1)
+
+Relation,Bit position,Binary value,Decimal value
+R1,bit 0,0b00000001,1
+R2,bit 1,0b00000010,2
+R3,bit 2,0b00000100,4
+R4,bit 3,0b00001000,8
+R5,bit 4,0b00010000,16
+Combining R1,R3,R4 = 13 = 00001101
 
 */
