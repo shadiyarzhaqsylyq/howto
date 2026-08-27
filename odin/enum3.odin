@@ -1,5 +1,5 @@
 package main
-
+//Direct Array Indexing N <= 16
 import "core:fmt"
 
 Relation :: enum u8 {
