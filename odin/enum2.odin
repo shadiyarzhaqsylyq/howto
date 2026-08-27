@@ -1,5 +1,5 @@
 package main
-// Table > 16
+// Robin Hood Map Table > 16
 
 import "core:fmt"
 
