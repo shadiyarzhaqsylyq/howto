@@ -7,7 +7,10 @@ R12 = 1 << 12, bit 12, 2^12 = 4096 entries(subsets)
 {}
 {R0}
 {R1}
+{R0,R1}
 {R2}
+{R0,R2}
 {R1,R2}
+{R0,R1,R2}
 3 tables have 8 entries, {} empty set does not count
 */
