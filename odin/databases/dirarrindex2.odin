@@ -2,7 +2,7 @@ package main
 
 import "core:fmt"
 import "core:math"
-// Direct Array Indexing for N <= 12 tables
+// Direct Array Indexing for N <= 12 tables,4096 entries
 Relation :: enum u8 {
     R1, R2, R3, R4, R5,
 }
