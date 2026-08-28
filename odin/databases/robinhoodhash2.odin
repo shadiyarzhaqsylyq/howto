@@ -3,7 +3,7 @@ package main
 import "core:fmt"
 import "core:math/bits"
 import "core:math"
-
+//Robin Hood Hash Map 12 <= N <= 30 tables, 10_000 to 100_000 entries
 Relation :: enum u8 {
     R1, R2, R3, R4, R5, R6, R7, R8,
 }
