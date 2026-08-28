@@ -3,7 +3,7 @@ package main
 import "core:fmt"
 import "core:math/bits"
 
-//Robin Hood Hash Map N > 16
+//Robin Hood Hash Map 12 <= N <= 30 tables
 Relation :: enum u8 { R1, R2, R3 }
 Relations :: bit_set[Relation; u8]
 
