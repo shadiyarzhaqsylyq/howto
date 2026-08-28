@@ -1,7 +1,7 @@
 package main
 
 import "core:fmt"
-// Direct Array Indexing for N <= 12 tables
+// Direct Array Indexing for N <= 12 tables, 4096 entries
 Relation :: enum u8 { R1, R2, R3, R4, R5 }
 Relations :: bit_set[Relation; u64]
 
