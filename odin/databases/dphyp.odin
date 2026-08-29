@@ -4,7 +4,8 @@ Uses R0,R1...,R12, R0 is 1 table, R1 is 2 table, R2 is 3 table
 R0 = 1 << 0, bit 0, 2^0 = 1
 R1 = 1 << 1, bit 1, 2^1 = 2
 R2 = 1 << 2, bit 2, 2^2 = 4
-R11 = 1 << 11, bit 11, 2^12 = 4096
+R11 = 1 << 11, bit 11, 2^11 = 2048
+R11 is 12 tables, 2^12 = 4096 entries(subsets)
 {}
 {R0}
 {R1}
