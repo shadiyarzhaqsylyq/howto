@@ -1,24 +1,95 @@
 package main
 
 import "core:fmt"
-// Direct Array Indexing for N <= 12 tables, 4096 entries
-Relation :: enum u8 { R1, R2, R3, R4, R5 }
+import "core:math"
+// Direct Array Indexing 
+Relation :: enum u8 {
+    R1, R2, R3, R4, R5,
+}
+
+// u64 backing for fast bitmask transmute
 Relations :: bit_set[Relation; u64]
 
-BestPlan :: struct { cost: int }
+Join_Type :: enum u8 {
+    Scan,
+    Hash_Join,
+    Nested_Loop_Join,
+}
+
+Best_Plan :: struct {
+    cost:      f64,
+    left:      Relations,
+    right:     Relations,
+    join_type: Join_Type,
+}
+
+// DP Table structure wrapping heap-allocated flat slice
+Memo_Table :: struct {
+    plans: []Best_Plan,
+    count: int,
+}
+
+// Heap-allocate memo array to prevent stack overflow
+init_memo_table :: proc(relation_count: int) -> Memo_Table {
+    size := 1 << uint(relation_count)
+    plans := make([]Best_Plan, size)
+    
+    // Initialize all costs to infinity (so < comparison works during DP)
+    for i in 0..<size {
+        plans[i].cost = math.INF_F64
+    }
+    
+    return Memo_Table{plans = plans, count = relation_count}
+}
+
+free_memo_table :: proc(table: ^Memo_Table) {
+    delete(table.plans)
+}
+
+// O(1) direct lookup using bitmask transmute
+get_plan :: proc(table: ^Memo_Table, set: Relations) -> ^Best_Plan {
+    mask := transmute(u64)set
+    return &table.plans[mask]
+}
 
 main :: proc() {
-    set1: Relations = {.R1, .R3, .R4}
-    raw_mask := transmute(u64)set1 // Evaluates to 13 (0b00001101)
+    relation_count := len(Relation)
+    memo := init_memo_table(relation_count)
+    defer free_memo_table(&memo)
 
-    // --- DIRECT ARRAY INDEXING ---
-    // 1. Allocate a flat array for all 2^5 (32) possible subset bitmasks
-    memo: [1 << len(Relation)]BestPlan 
+    // Define relation subsets
+    s1: Relations = {.R1, .R3}
+    s2: Relations = {.R2, .R4}
+    combined := s1 + s2 // {.R1, .R2, .R3, .R4}
 
-    // 2. Use raw_mask (13) DIRECTLY as the memory index (No hash map needed!)
-    memo[raw_mask] = BestPlan{cost = 45}
+    // Direct offset access to s1
+    p1 := get_plan(&memo, s1)
+    p1.cost = 30.0
+    p1.join_type = .Scan
 
-    // 3. Instant O(1) lookup: CPU jumps directly to byte offset (memo_ptr + 13 * size)
-    retrieved := memo[raw_mask]
-    fmt.println("Cost for set1:", retrieved.cost) // Output: 45
+    // Direct offset access to s2
+    p2 := get_plan(&memo, s2)
+    p2.cost = 45.0
+    p2.join_type = .Scan
+
+    // Perform DP state transition
+    p_combined := get_plan(&memo, combined)
+    candidate_cost := p1.cost + p2.cost + 12.5 // Join cost calculation
+
+    if candidate_cost < p_combined.cost {
+        p_combined.cost      = candidate_cost
+        p_combined.left      = s1
+        p_combined.right     = s2
+        p_combined.join_type = .Hash_Join
+    }
+
+    // Output results
+    retrieved := get_plan(&memo, combined)
+    mask_val  := transmute(u64)combined
+
+    fmt.printfln("Combined Bitmask Index: %d (0b%b)", mask_val, mask_val)
+    fmt.printfln("Optimal Cost:           %.2f", retrieved.cost)
+    fmt.printfln("Left Sub-plan:          %v", retrieved.left)
+    fmt.printfln("Right Sub-plan:         %v", retrieved.right)
+    fmt.printfln("Join Type:              %v", retrieved.join_type)
 }
