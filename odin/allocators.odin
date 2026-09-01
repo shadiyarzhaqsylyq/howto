@@ -36,4 +36,21 @@ get_current_alloc :: proc() -> mem.Allocator {
     return context.allocator
 }
 
+/*
+work_zero_alloc :: proc() {
+    // Override context allocator for this procedure scope
+	// Hot Paths & Real Time code: Placing this at the top of render loop, physics tick, or audio processing callback
+	guarantees that no code path accidentally hits the heap or causes hidden allocation overhead
+    context.allocator = mem.nil_allocator()
 
+    // This implicit allocation attempt will fail:
+    p, err := new(int)
+    fmt.println(p, err) // Outputs: nil Out_Of_Memory
+
+    // Explicit allocations using another allocator still work:
+    // p_temp, _ := new(int, context.temp_allocator) 
+}
+
+
+
+*/
