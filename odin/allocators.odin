@@ -4,14 +4,14 @@ import "core:fmt"
 import "core:mem"
 
 
-my_custom_alloc :: mem.nil_allocator
+
 
 main :: proc(){
 c := context
 
 context.user_index = 456
 {
-context.allocator = my_custom_alloc() // or mem.nil_allocator(), get_current_alloc()
+context.allocator = get_current_alloc()
 context.user_index = 123
 supertramp()
 fmt.println(context.user_index)
@@ -31,10 +31,9 @@ supertramp :: proc() {
 	free(ptr)
 }
 
-/*
+
 get_current_alloc :: proc() -> mem.Allocator {
     return context.allocator
 }
 
 
-*/
