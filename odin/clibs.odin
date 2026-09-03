@@ -2,7 +2,7 @@ package main
 
 import "core:fmt"
 import "core:c"
-
+//OpenSSL lib interaction
 // Link against system OpenSSL libraries
 when ODIN_OS == .Windows {
     foreign import libssl { "system:libssl.lib", "system:libcrypto.lib" }
