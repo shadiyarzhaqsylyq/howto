@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <signal.h>
-// better than signals1 and signal3 for worker loop
+// better than signals1 for worker loop
 // 1. Define atomic flag
 static volatile sig_atomic_t keep_running = 1;
 
