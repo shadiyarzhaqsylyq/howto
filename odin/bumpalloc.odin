@@ -68,28 +68,20 @@ bump_allocator_proc :: proc(
 		bump_reset(arena)
 		return nil, .None
 
-	case .Resize, .Resize_Non_Zeroed:
-		// Optional optimization: if the old memory is the last allocation made,
-		// we can expand or shrink it in place!
-		curr_ptr := uintptr(raw_data(arena.data)) + uintptr(arena.offset)
-		if uintptr(old_memory) + uintptr(old_size) == curr_ptr {
-			new_offset := arena.offset - old_size + size
-			if new_offset <= len(arena.data) {
-				arena.offset = new_offset
-				return mem.byte_slice(old_memory, size), .None
-			}
-		}
-
-		// Otherwise, allocate fresh memory and copy the old contents over
-		new_bytes, err := bump_alloc(arena, size, alignment)
-		if err != .None {
-			return nil, err
-		}
-		copy_size := min(old_size, size)
-		if copy_size > 0 && old_memory != nil {
-			mem.copy(raw_data(new_bytes), old_memory, copy_size)
-		}
-		return new_bytes, .None
+	case .Resize:
+    // ... if fallback allocation is needed:
+    new_bytes, err := bump_alloc(arena, size, alignment)
+    if err != .None do return nil, err
+    
+    if old_memory != nil && old_size > 0 {
+        copy_size := min(old_size, size)
+        mem.copy(raw_data(new_bytes), old_memory, copy_size)
+    }
+    // Zero out the newly expanded trailing region
+    if size > old_size {
+        mem.zero_slice(new_bytes[old_size:])
+    }
+    return new_bytes, .None
 
 	case .Free:
 		// Bump allocators do not support individual frees (no-op)
