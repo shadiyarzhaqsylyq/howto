@@ -3,54 +3,36 @@ package main
 import "core:fmt"
 import "core:mem"
 
-
-
-
-main :: proc(){
-c := context
-
-context.user_index = 456
-{
-context.allocator = get_current_alloc()
-context.user_index = 123
-supertramp()
-fmt.println(context.user_index)
-}
-assert(context.user_index == 456)
-fmt.println(context.user_index)
-
+Person :: struct {
+    name: string,
+    age:  int,
 }
 
-supertramp :: proc() {
-	c := context // 
-	// context.user_index == 123
-	// uses my_custom_alloc()
-	fmt.println(context.user_index) // prints 123
-	// The memory management procedure uses the `context.allocator` by default unless explicitly specified otherwise
-	ptr := new(int)
-	free(ptr)
+main :: proc() {
+    // 1. Allocate a backing buffer (e.g., 1 MB on the heap or stack)
+    backing_buffer := make([]byte, 1 * mem.Megabyte)
+    defer delete(backing_buffer)
+
+    // 2. Initialize the arena with the backing buffer
+    arena: mem.Arena
+    mem.arena_init(&arena, backing_buffer)
+
+    // 3. Obtain an Allocator interface from the arena
+    arena_allocator := mem.arena_allocator(&arena)
+
+    // 4. Allocate memory using the arena allocator
+    p := new(Person, arena_allocator)
+    p.name = "Alice"
+    p.age = 30
+
+    numbers := make([]int, 5, arena_allocator)
+    for i in 0..<5 {
+        numbers[i] = (i + 1) * 10
+    }
+
+    fmt.println("Person:", p^)
+    fmt.println("Numbers:", numbers)
+
+    // 5. Free / reset everything in the arena at once
+    free_all(arena_allocator) // or: mem.arena_free_all(&arena)
 }
-
-
-get_current_alloc :: proc() -> mem.Allocator {
-    return context.allocator
-}
-
-/*
-work_zero_alloc :: proc() {
-    // Override context allocator for this procedure scope
-	// Hot Paths & Real Time code: Placing this at the top of render loop, physics tick, or audio processing callback
-	guarantees that no code path accidentally hits the heap or causes hidden allocation overhead
-    context.allocator = mem.nil_allocator()
-
-    // This implicit allocation attempt will fail:
-    p, err := new(int)
-    fmt.println(p, err) // Outputs: nil Out_Of_Memory
-
-    // Explicit allocations using another allocator still work:
-    // p_temp, _ := new(int, context.temp_allocator) 
-}
-
-
-
-*/
