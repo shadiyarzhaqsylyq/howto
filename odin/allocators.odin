@@ -10,7 +10,7 @@ Person :: struct {
 
 main :: proc() {
     // 1. Allocate a backing buffer (e.g., 1 MB on the heap or stack)
-    backing_buffer := make([]byte, 1 * mem.Megabyte)
+    backing_buffer := make([]byte, 1 * mem.Megabyte) //or buf, err := make_aligned([]byte, 1 * mem.Megabyte, mem.DEFAULT_ALIGNMENT)
     defer delete(backing_buffer)
 
     // 2. Initialize the arena with the backing buffer
