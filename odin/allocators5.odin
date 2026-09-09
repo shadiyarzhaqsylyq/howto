@@ -5,7 +5,7 @@ import "core:mem"
 
 main :: proc() {
     // 1. Allocate backing buffer ONCE
-    buf, _ := mem.make_aligned([]byte, 16 * mem.Megabyte, mem.DEFAULT_ALIGNMENT)
+    buf, _ := make_aligned([]byte, 16 * mem.Megabyte, mem.DEFAULT_ALIGNMENT)
     defer delete(buf)
 
     // ========================================================
