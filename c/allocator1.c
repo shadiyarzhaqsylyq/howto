@@ -14,6 +14,7 @@ Arena arena_create(size_t capacity) {
     a.buffer = (uint8_t *)malloc(capacity); // or mmap/VirtualAlloc
     // Linux 2MB Huge Pages allocation for the Buffer Pool
     //void *buffer_pool = mmap(NULL, POOL_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB, -1, 0);
+    //mprotect(ptr, size, PROT_READ | PROT_WRITE)
     a.capacity = capacity;
     a.offset = 0;
     return a;
