@@ -50,6 +50,7 @@ main :: proc() {
 
         // Reset the buddy allocator when gameplay ends:
         free_all(alloc)
+    // without calling free() there will be not enough memory.
     }
 
     // ========================================================
