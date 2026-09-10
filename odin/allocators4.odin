@@ -35,6 +35,8 @@ main :: proc() {
         free(entity_a, alloc)
 
         free_all(alloc)
+    // without calling free() there will be not enough memory for other objects. 
+    // We can use free_all() at the end, if we dont care about memory, there are not many objects allocations.
     }
 
     // PHASE 3: Menu (Stack)
