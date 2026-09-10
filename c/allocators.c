@@ -67,3 +67,66 @@ int main() {
     arena_destroy(arena);
     return 0;
 }
+/*
+Stack version
+#include <stdio.h>
+#include <stddef.h>
+#include <stdint.h>
+
+typedef struct {
+    uint8_t *buffer;
+    size_t capacity;
+    size_t offset;
+} Arena;
+
+// Initialize the arena with ANY region of memory
+void arena_init(Arena *arena, void *backing_buffer, size_t capacity) {
+    arena->buffer = (uint8_t *)backing_buffer;
+    arena->capacity = capacity;
+    arena->offset = 0;
+}
+
+// Sub-allocate from the arena (bumping the offset pointer)
+void *arena_alloc(Arena *arena, size_t size) {
+    // Simple 8-byte alignment logic
+    size_t aligned_offset = (arena->offset + 7) & ~7;
+    
+    if (aligned_offset + size > arena->capacity) {
+        return NULL; // Out of arena memory
+    }
+    
+    void *ptr = &arena->buffer[aligned_offset];
+    arena->offset = aligned_offset + size;
+    return ptr;
+}
+
+// Reset the arena instantaneously without freeing individual pointers
+void arena_reset(Arena *arena) {
+    arena->offset = 0;
+}
+
+int main() {
+    // Option A: Backed by Stack Memory (no malloc)
+    uint8_t stack_buffer[1024]; 
+    
+    // Option B: Backed by Static/Global Memory (no malloc)
+    // static uint8_t static_buffer[1024 * 1024]; 
+
+    Arena arena;
+    arena_init(&arena, stack_buffer, sizeof(stack_buffer));
+
+    // Fast sub-allocations inside the stack-allocated buffer
+    int *numbers = (int *)arena_alloc(&arena, sizeof(int) * 10);
+    double *values = (double *)arena_alloc(&arena, sizeof(double) * 5);
+
+    for (int i = 0; i < 10; i++) numbers[i] = i * 2;
+
+    printf("Allocated 10 ints and 5 doubles without calling malloc!\n");
+    printf("Used %zu / %zu bytes\n", arena.offset, arena.capacity);
+
+    // Free everything at once by resetting the pointer offset
+    arena_reset(&arena);
+    return 0;
+}
+
+*/
