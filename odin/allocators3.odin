@@ -51,7 +51,8 @@ main :: proc() {
         // Reset the buddy allocator when gameplay ends:
         free_all(alloc)
 
-    // without calling free() there will be not enough memory other objects. 
+    // without calling free() there will be not enough memory for other objects. If we need allocation for many
+    // objects, we need to use free().
     // We can use free_all() at the end, if we dont care about memory, there are not many objects allocations.
     }
 
