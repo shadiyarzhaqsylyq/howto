@@ -4,6 +4,7 @@ package main
 import "core:fmt"
 
 // Step 1: Hash Function (scrambles the key into a 64-bit integer)
+// Only for BIGINT/u64
 mm3 :: proc(input_id: u64) -> u64 {
     hash := input_id
     hash = (hash ~ (hash >> 33)) * 0xff51afd7ed558ccd
