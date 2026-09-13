@@ -52,15 +52,7 @@ typedef struct {
     }
 #endif
 
-// Helper to format bitset output similar to Odin's %v printer
-static void print_relations(Relations set) {
-    printf("{");
-    bool first = true;
-    if (set & BIT_R1) { printf("R1"); first = false; }
-    if (set & BIT_R2) { printf("%sR2", first ? "" : ", "); first = false; }
-    if (set & BIT_R3) { printf("%sR3", first ? "" : ", "); first = false; }
-    printf("}\n");
-}
+
 
 int main(void) {
     // 1. Direct-lookup array for 8-bit key space (0 to 255)
@@ -96,9 +88,6 @@ int main(void) {
                                (plan.join_type == JOIN_HASH_JOIN)  ? "Hash_Join"  : "Nested_Loop";
         printf("Sub-plan cost for {.R1, .R3}: %.1f %s\n", plan.cost, type_str);
     }
-
-    print_relations(union_set);
-    print_relations(intersect);
 
     printf("%d\n", union_set);
     printf("%d\n", intersect);
