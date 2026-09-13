@@ -3,7 +3,36 @@
 #include <stdbool.h>
 #include <string.h>
 #include <inttypes.h>
+/*
+Use Packed Struct + One Shot when all key columsn are fixed-width(integers, UUIDs, Dates)
+Use Packed Struct + Seed Chaining when composite key has both fixed-width columns and variable-length data(like VARCHAR/string)
+because they can be different in sizes('finance','IT' and etc.)
 
+mm3finalizer is used when BIGINT/u64
+WHERE a.id = b.id
+
+Composite fixed columns(Packed Struct + One-Shot XXH64)
+WHERE a.tenant = b.tenant AND a.user_id = b.user_id
+
+Mixed columns with strings(Packed Struct + Seed Chaining)
+WHERE a.tenant = b.tenant AND a.name = b.name
+
+Use get_bucket_index_power_of_two() or fastrange() in the end for output values of 
+mm3finalizer,Packed Struct + One-Shot,Packed Struct + Seed Chaining
+
+Write-Ahead Log (WAL) Checksums
+The Problem: When a database appends records to a WAL file to guarantee durability (ACID), a system crash mid-write can result in a "torn write" (a partially written block of data).
+
+The Role of XXH64: Engines append an XXH64 checksum to each WAL record or log block. During crash recovery, the engine computes the hash of the read records and compares it against the stored checksum. If they don't match, it knows it has hit the end of valid log data or encountered corruption.
+
+Page & Block Level Integrity
+Beyond the WAL, data pages stored in data files often contain page headers with checksums. When a page is loaded from disk into the buffer pool, the engine validates the checksum to ensure the storage medium hasn't silently corrupted the bytes.
+
+Hash Indexes, Joins, and Partitioning
+Outside of persistence, XXH64 is heavily used in memory for hash tables, hash joins, bloom filters, and sharding/partitioning keys due to its rapid mixing function and excellent avalanche effect.
+
+
+*/
 // Requires xxHash header (https://github.com/Cyan4973/xxHash)
 // Compile with: gcc main.c -lxxhash
 #define XXH_INLINE_ALL
