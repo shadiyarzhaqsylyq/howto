@@ -38,6 +38,10 @@ ps.vy = buffer + (3 * NUM_PARTICLES); // 12-16MB
 	printf("%p\n",buffer);
 	printf("%f\n",*buffer);
 	printf("%f\n",buffer[0]);
+
+	printf("%p\n", (void*)buffer);    // 0x7ff8a4000000
+	printf("%p\n", (void*)ps.x);      // 0x7ff8a4000000 (starts at the exact same location)
+	printf("%p\n", (void*)&ps.x[0]);  // 0x7ff8a4000000
 // Clean up everything with a single free call
 free(buffer); // free(ps.x) works equally well
 
