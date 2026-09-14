@@ -19,6 +19,24 @@ int main(void) {
     ps.y  = malloc(NUM_PARTICLES * sizeof(float));
     ps.vx = malloc(NUM_PARTICLES * sizeof(float));
     ps.vy = malloc(NUM_PARTICLES * sizeof(float));
+    /*Alternative
+    
+    // Allocate all 16 MB in a single contiguous block
+float *buffer = malloc(4 * NUM_PARTICLES * sizeof(float));
+if (!buffer) return 1;
+
+struct ParticleSystem ps;
+ps.x  = buffer;
+ps.y  = buffer + NUM_PARTICLES;
+ps.vx = buffer + (2 * NUM_PARTICLES);
+ps.vy = buffer + (3 * NUM_PARTICLES);
+
+// ... perform computations ...
+
+// Clean up everything with a single free call
+free(buffer); // free(ps.x) works equally well
+    
+    */
 
     if (!ps.x || !ps.y || !ps.vx || !ps.vy) {
         fprintf(stderr, "Allocation failed!\n");
