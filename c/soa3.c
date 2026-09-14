@@ -17,7 +17,7 @@ float *buffer = malloc(4 * NUM_PARTICLES * sizeof(float));
 if (!buffer) return 1;
 
 struct ParticleSystem ps;
-ps.x  = buffer; // Fisrt 1 million x0,x1,x2...xN are between 0-4MB and last element is at 4MB
+ps.x  = buffer; // First 1 million x0,x1,x2...xN are between 0-4MB and last element is at 4MB. first elements is at buffer address.
 ps.y  = buffer + NUM_PARTICLES; // next elements are between 4-8MB. First element starts at 4MB
 ps.vx = buffer + (2 * NUM_PARTICLES); // 8-12MB
 ps.vy = buffer + (3 * NUM_PARTICLES); // 12-16MB
