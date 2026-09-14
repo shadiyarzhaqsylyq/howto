@@ -1,4 +1,3 @@
-#include <stdio.stdio.h>
 #include <stdio.h>
 
 #define NUM_PARTICLES 4
