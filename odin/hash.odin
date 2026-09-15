@@ -25,6 +25,13 @@ import "core:fmt"
 import "core:mem"
 import "core:hash/xxhash"
 
+//Prefer this for Grace/Hybrid Hash Join
+get_bucket_index :: proc(hash: u64, capacity: u64) -> u64 {
+    product := u128(hash) * u128(capacity)
+    return u64(product >> 64)
+}
+
+
 // The universal bucket indexer (from poweroftwo.odin) or use fastrange.odin
 get_bucket_index_power_of_two :: proc(hash: u64, capacity: u64) -> u64 {
     return hash & (capacity - 1)
