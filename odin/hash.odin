@@ -53,7 +53,7 @@ hash_single_int :: proc(id: u64) -> u64 {
 
 // David Stafford's Mixer Variant 13. Used in SplitMix64
 // Alternative to mm3 finalizer
-uint64_t stafford_mix13 :: proc(id: u64) -> u64 {
+splitmix64 :: proc(id: u64) -> u64 {
 	x := id
     x = (x ~ (x >> 30)) * 0xbf58476d1ce4e5b9;
     x = (x ~ (x >> 27)) * 0x94d049bb133111eb;
