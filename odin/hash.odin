@@ -40,6 +40,17 @@ hash_single_int :: proc(id: u64) -> u64 {
     h = (h ~ (h >> 33)) * 0xc4ceb9fe1a85ec53
     return h ~ (h >> 33)
 }
+/*
+David Stafford's Mixer Variant 13. Used in SplitMix64
+uint64_t stafford_mix13 :: proc(id: u64) -> u64 {
+	x := id
+    x = (x ~ (x >> 30)) * 0xbf58476d1ce4e5b9;
+    x = (x ~ (x >> 27)) * 0x94d049bb133111eb;
+    return x ~ (x >> 31);
+}
+
+
+*/
 
 // -------------------------------------------------------------
 // CASE 2: Composite Fixed Columns (using Packed Struct + One-Shot)
