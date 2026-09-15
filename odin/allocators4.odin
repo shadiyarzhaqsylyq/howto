@@ -11,7 +11,7 @@ main :: proc() {
     if err != nil {
         panic("Failed to reserve virtual memory")
     }
-    defer virtual.release(raw_data(buf), len(buf))
+    defer virtual.release(raw_data(buf), size)
 
     // PHASE 1: Loading (Arena)
     {
