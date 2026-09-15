@@ -1,4 +1,5 @@
 package main
+//XXH3
 //One shot hashing (Standard for Hash Joins)
 import "core:fmt"
 import "core:hash/xxhash"
