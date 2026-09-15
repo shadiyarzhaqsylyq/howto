@@ -25,7 +25,7 @@ import "core:fmt"
 import "core:mem"
 import "core:hash/xxhash"
 
-// The universal bucket indexer (from poweroftwo.odin)
+// The universal bucket indexer (from poweroftwo.odin) or use fastrange.odin
 get_bucket_index_power_of_two :: proc(hash: u64, capacity: u64) -> u64 {
     return hash & (capacity - 1)
 }
