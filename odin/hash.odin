@@ -85,7 +85,7 @@ hash_mixed_with_string :: proc(fixed: ^Fixed_Key, dept: string, seed: u64) -> u6
 }
 
 main :: proc() {
-    CAPACITY: u64 = 65_536 // Must be power of 2
+    CAPACITY: u64 = 65_536 // Must be power of 2 for Power of Two Algorithm. FastRange does not need capacity to be Power Of Two
     query_seed: u64 = 0xdeadbeef
 
     // 1. Single int join
