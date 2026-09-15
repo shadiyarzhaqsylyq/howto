@@ -1,4 +1,4 @@
-//Lemire's algorithm
+//Fast Range (Daniel Lemire)
 package main
 
 import "core:fmt"
