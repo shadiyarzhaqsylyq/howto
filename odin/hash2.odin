@@ -1,5 +1,5 @@
 package main
-//XXHH3
+//XXH3
 import "core:fmt"
 import "core:hash/xxhash"
 //Streaming hashing (Composite Keys or WAL records)
