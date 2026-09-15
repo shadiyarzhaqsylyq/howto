@@ -25,6 +25,7 @@ import "core:fmt"
 import "core:mem"
 import "core:hash/xxhash"
 
+// Daniel Lemire (Fastrange)
 //Prefer this for Grace/Hybrid Hash Join
 get_bucket_index :: proc(hash: u64, capacity: u64) -> u64 {
     product := u128(hash) * u128(capacity)
@@ -38,7 +39,7 @@ get_bucket_index_power_of_two :: proc(hash: u64, capacity: u64) -> u64 {
 }
 
 // -------------------------------------------------------------
-// CASE 1: Single Integer Column (using mm3)
+// CASE 1: Single Integer Column (using mm3 finalizer)
 // -------------------------------------------------------------
 hash_single_int :: proc(id: u64) -> u64 {
     // mm3 bit-mixer
@@ -47,8 +48,10 @@ hash_single_int :: proc(id: u64) -> u64 {
     h = (h ~ (h >> 33)) * 0xc4ceb9fe1a85ec53
     return h ~ (h >> 33)
 }
-/*
-David Stafford's Mixer Variant 13. Used in SplitMix64
+
+
+// David Stafford's Mixer Variant 13. Used in SplitMix64
+// Alternative to mm3 finalizer
 uint64_t stafford_mix13 :: proc(id: u64) -> u64 {
 	x := id
     x = (x ~ (x >> 30)) * 0xbf58476d1ce4e5b9;
@@ -57,7 +60,6 @@ uint64_t stafford_mix13 :: proc(id: u64) -> u64 {
 }
 
 
-*/
 
 // -------------------------------------------------------------
 // CASE 2: Composite Fixed Columns (using Packed Struct + One-Shot)
