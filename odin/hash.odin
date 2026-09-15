@@ -3,6 +3,7 @@ package main
 mm3finalizer is used when BIGINT/u64
 WHERE a.id = b.id
 
+//Use Packed Struct + One Shot when all key columns are fixed-width(integers, UUIDs, Dates)
 Composite fixed columns(Packed Struct + One-Shot XXH64)
 WHERE a.tenant = b.tenant AND a.user_id = b.user_id
 
