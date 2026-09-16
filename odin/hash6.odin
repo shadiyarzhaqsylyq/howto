@@ -24,12 +24,16 @@ hash_combine :: #force_inline proc(h1, h2: u64) -> u64 {
 }
 
 // 1. Mixed Key
+// 2 columns
+// JOIN ON a.tenant_id = b.tenant_id AND a,dept = b.dept
 hash_mixed_with_string1 :: proc(tenant_id: u64, dept: string, seed: u64 = 0) -> u64 {
 	h_str := xxhash.XXH64(transmute([]u8)dept, seed)
 	h_int := splitmix64(tenant_id)
 	return hash_combine(h_int, h_str)
 }
 
+// 3 columns
+// JOIN ON a.order_id = b.order_id AND a.user_id = b.user_id AND a.dept = b.dept
 hash_mixed_with_string2 :: proc(key: ^Short_Composite_Key, dept: string, seed: u64 = 0) -> u64 {
     // 1. Hash the string once with XXH64
     h_str := xxhash.XXH64(transmute([]u8)dept, seed)
@@ -43,6 +47,16 @@ hash_mixed_with_string2 :: proc(key: ^Short_Composite_Key, dept: string, seed: u
     return hash_combine(h_fixed, h_str)
 }
 
+hash_mixed_with_string2_optimized :: proc(key: ^Short_Composite_Key, dept: string, seed: u64 = 0) -> u64 {
+    // 1. Hash the string once
+    h_str := xxhash.XXH64(transmute([]u8)dept, seed)
+
+    // 2. Combine the two integer columns directly (1 pass)
+    h_fixed := hash_combine(key.order_id, key.user_id)
+
+    // 3. Combine fixed part with the string hash
+    return hash_combine(h_fixed, h_str)
+}
 
 
 // 2. Short Fixed Key (<= 16B)
