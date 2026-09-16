@@ -11,7 +11,7 @@ get_bucket_index :: proc(hash: u64, capacity: u64) -> u64 {
     return u64(product >> 64)
 }
 
-
+// JOIN ON a.id = b.id
 splitmix64 :: #force_inline proc(x: u64) -> u64 {
 	z := x + 0x9E3779B97F4A7C15
 	z = (z ~ (z >> 30)) * 0xBF58476D1CE4E5B9
