@@ -56,6 +56,11 @@ hash_short_composite :: proc(key: ^Short_Composite_Key) -> u64 {
 	h2 := splitmix64(key.user_id)
 	return hash_combine(h1, h2)
 }
+//Alternative
+hash_short_composite :: #force_inline proc(key: ^Short_Composite_Key) -> u64 {
+	return hash_combine(key.order_id, key.user_id)
+}
+
 
 // 3. Wide Fixed Key (>= 24B)
 Wide_Composite_Key :: struct #packed {
