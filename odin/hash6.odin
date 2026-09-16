@@ -25,7 +25,7 @@ hash_combine :: #force_inline proc(h1, h2: u64) -> u64 {
 
 // 1. Mixed Key
 // 2 columns
-// JOIN ON a.tenant_id = b.tenant_id AND a,dept = b.dept
+// JOIN ON a.tenant_id = b.tenant_id AND a.dept = b.dept
 hash_mixed_with_string1 :: proc(tenant_id: u64, dept: string, seed: u64 = 0) -> u64 {
 	h_str := xxhash.XXH64(transmute([]u8)dept, seed)
 	h_int := splitmix64(tenant_id)
