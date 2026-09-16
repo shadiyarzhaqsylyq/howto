@@ -58,8 +58,8 @@ hash_mixed_with_string2_optimized :: proc(key: ^Short_Composite_Key, dept: strin
     return hash_combine(h_fixed, h_str)
 }
 
-
 // 2. Short Fixed Key (<= 16B)
+// JOIN ON a.tenant_id = b.tenant_id AND a.user_id = b.user_id
 Short_Composite_Key :: struct {
 	order_id: u64,
 	user_id:  u64,
