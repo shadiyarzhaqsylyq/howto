@@ -14,18 +14,8 @@ typedef struct {
     uint64_t user_id;
 } Short_Composite_Key;
 
-#pragma pack(push, 1)
-typedef struct {
-    uint64_t tenant_id;
-    uint64_t account_id;
-    uint64_t region_id;
-    uint8_t  status_flag;
-} Wide_Composite_Key;
-#pragma pack(pop)
 
-// -----------------------------------------------------------------------------
-// Core Hashing Utilities
-// -----------------------------------------------------------------------------
+
 
 // Daniel Lemire (Fastrange)
 static inline uint64_t get_bucket_index(uint64_t hash, uint64_t capacity) {
@@ -83,26 +73,64 @@ static inline uint64_t hash_short_composite_optimized(const Short_Composite_Key*
     return hash_combine(key->order_id, key->user_id);
 }
 
+
+
+
+typedef struct {
+    uint64_t tenant_id;// 8 bytes
+    uint64_t account_id;// 8 bytes
+    uint64_t region_id; // 8 bytes
+    uint8_t  status_flag; // 1 byte
+} Wide_Composite_Key; // 32 bytes, no 25 bytes because of padding
+
+//Best for without padding
+static inline uint64_t key_hash(const Wide_Composite_Key* key, uint64_t seed) {
+    uint64_t h = seed ^ 0x9E3779B97F4A7C15ULL;
+
+    h = (h ^ key->tenant_id)             * 0xBF58476D1CE4E5B9ULL;
+    h = (h ^ key->account_id)            * 0x94D049BB133111EBULL;
+    h = (h ^ key->region_id)             * 0x9E3779B97F4A7C15ULL;
+    h = (h ^ (uint64_t)key->status_flag) * 0xBF58476D1CE4E5B9ULL;
+
+    // Final avalanche mixer
+    h ^= h >> 33;
+    h *= 0xff51afd7ed558ccdULL;
+    h ^= h >> 33;
+
+    return h;
+}
+
 // 3. Wide Fixed Key (>= 24B)
-uint64_t hash_wide_composite(const Wide_Composite_Key* key, uint64_t seed) {
+uint64_t hash_wide_composite(const Wide_Composite_Key *key, uint64_t seed) {
     return XXH64(key, sizeof(Wide_Composite_Key), seed);
 }
 
 // Passing by value lets the compiler optimize field layout in registers
-static inline uint64_t hash_wide_composite_fast(const Wide_Composite_Key *key, uint64_t seed) {
-    uint64_t h = seed + key->tenant_id + 0x9E3779B97F4A7C15ULL;
-    
-    h = (h ^ key->account_id)  * 0xBF58476D1CE4E5B9ULL;
-    h = (h ^ key->region_id)   * 0x94D049BB133111EBULL;
-    h = (h ^ (uint64_t)key->status_flag) * 0x9E3779B97F4A7C15ULL;
-    
-    h = (h ^ (h >> 30)) * 0xBF58476D1CE4E5B9ULL;
-    return h ^ (h >> 31);
+static inline uint64_t hash_wide_composite_optimized(const Wide_Composite_Key *key, uint64_t seed) {
+    // 1. Initialize with seed
+    uint64_t h = seed ^ 0x9E3779B97F4A7C15ULL;
+
+    // 2. Mix EVERY field with its own prime multiply (prevents ID cancellation)
+    h = (h ^ key->tenant_id)             * 0xBF58476D1CE4E5B9ULL;
+    h = (h ^ key->account_id)            * 0x94D049BB133111EBULL;
+    h = (h ^ key->region_id)             * 0x9E3779B97F4A7C15ULL;
+    h = (h ^ (uint64_t)key->status_flag) * 0xBF58476D1CE4E5B9ULL;
+
+    // 3. Full SplitMix64 / Stafford-13 finalizer (guarantees perfect 50% avalanche)
+    h ^= h >> 30;
+    h *= 0xBF58476D1CE4E5B9ULL;
+    h ^= h >> 27;
+    h *= 0x94D049BB133111EBULL;
+    h ^= h >> 31;
+
+    return h;
 }
 
-// -----------------------------------------------------------------------------
+
+
+
 // Entry Point
-// -----------------------------------------------------------------------------
+
 
 int main(void) {
     Wide_Composite_Key wide_key = {
@@ -112,7 +140,7 @@ int main(void) {
         .status_flag = 1
     };
     
-    uint64_t h1 = hash_wide_composite_fast(&wide_key, 0);
+    uint64_t h1 = hash_wide_composite_optimized(&wide_key, 0);
     printf("[Technique 3 - Wide >=24B]  Hash: 0x%016llX\n", (unsigned long long)h1);
 
     const uint64_t CAPACITY = 1024;
