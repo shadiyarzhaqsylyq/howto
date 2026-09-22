@@ -3,10 +3,10 @@
 #include <array>
 void print_nums(const std::array<int, 3u> & numbers){
 
-    for(const auto number: numbers) //<1>
+    for(const auto number: numbers) 
     {	
 		std::cout << std::noshowpos;
-        std::cout << number << '\n'; //<2>
+        std::cout << number << '\n';
     }
 
 }
