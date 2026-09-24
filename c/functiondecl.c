@@ -1,4 +1,4 @@
-// Line 3
+// Do not use this
 void function_30(void) {
     function_1(); // ERROR: Compiler doesn't know what function_1 is yet
 }
@@ -10,20 +10,12 @@ void function_1(void) {
     // Implementation
 }
 
-Correct version
-// Line 1: Tell the compiler the signature exists ahead of time
-void function_1(void); 
-
-// Line 3
-void function_30(void) {
-    function_1(); // WORKS: Compiler knows the return type and parameter types
-}
-
-// ... 50,000 lines of code ...
-
-// Line 50,000
+// Correct technique
 void function_1(void) {
     // Implementation
+}
+void function_30(void) {
+    function_1(); // Correct. Will compile
 }
 
 
