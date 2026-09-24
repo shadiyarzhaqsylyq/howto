@@ -33,7 +33,7 @@ Declare in .h and define .c
 no static
 
 Private helper
-Define and declar in .c only
+Define and declare in .c only
 uses static only
 
 Static Inline
