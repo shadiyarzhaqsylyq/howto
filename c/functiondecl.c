@@ -36,5 +36,6 @@ Private helper
 Define and declar in .c only
 uses static only
 
-Uses static inline for tiny functions
+Static Inline
+Use static inline for tiny functions. Declare it only in header file
 */
