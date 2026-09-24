@@ -25,3 +25,16 @@ void function_30(void) {
 void function_1(void) {
     // Implementation
 }
+
+
+/*
+Public function
+Declare in .h and define .c
+no static
+
+Private helper
+Define and declar in .c only
+uses static only
+
+Uses static inline for tiny functions
+*/
