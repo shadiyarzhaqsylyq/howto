@@ -16,7 +16,7 @@ static inline uint32_t get_table_id(PageID id) {
 
 // 3. EXTRACT PageNO (Mask out the high 32 bits)
 static inline uint32_t get_page_num(PageID id) {
-    return (uint32_t)(id & 0xFFFFFFFFULL);
+    return (uint32_t)id; // or (id & 0xFFFFFFFFULL);
 }
 
 
