@@ -5,8 +5,8 @@
 typedef uint64_t PageID;
 
 // 1. GENERATE PageID (Bit Packing)
-static inline PageID make_page_id(uint32_t table_id, uint32_t page_no) {
-    return ((uint64_t)table_id << 32) | (uint64_t)page_no;
+static inline PageID make_page_id(uint32_t table_id, uint32_t page_num) {
+    return ((uint64_t)table_id << 32) | (uint64_t)page_num;
 }
 
 // 2. EXTRACT TableID (Shift right by 32 bits)
@@ -15,7 +15,7 @@ static inline uint32_t get_table_id(PageID id) {
 }
 
 // 3. EXTRACT PageNO (Mask out the high 32 bits)
-static inline uint32_t get_page_no(PageID id) {
+static inline uint32_t get_page_num(PageID id) {
     return (uint32_t)(id & 0xFFFFFFFFULL);
 }
 
