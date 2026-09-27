@@ -44,7 +44,7 @@ int main(void) {
     PageID page_id = make_page_id(tableid, pageno);
 
     uint32_t table = get_table_id(page_id);
-    uint32_t pagenum = get_page_no(page_id);
+    uint32_t pagenum = get_page_num(page_id);
 
     printf("PageID = %" PRIu64 "\n", page_id);
     printf("TableID = %" PRIu32 "\n", table);
