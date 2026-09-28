@@ -5,18 +5,12 @@
 #include <assert.h>
 #include <string.h>
 
-/* Example
-// Macro to align memory sizes to the nearest multiple of the machine's word size (usually 8 bytes)
-#define ALIGN_UP(size, alignment) (((size) + ((alignment) - 1)) & ~((alignment) - 1))
+/*Example
+// Macro to align memory sizes to the nearest multiple of the machine's word size (usually 8 bytes in 32bit system, 16 bytes in 64bit system)
+//#define ALIGN_UP(size, alignment) (((size) + ((alignment) - 1)) & ~((alignment) - 1))
 #ifndef DEFAULT_ALIGNMENT
 #define DEFAULT_ALIGNMENT (2 * sizeof(void *))
 #endif
-
-#include <stdio.h>
-#include <stdint.h>
-#include <stddef.h>
-#include <stdbool.h>
-#include <assert.h>
 
 bool is_power_of_two(uintptr_t x) {
     return x > 0 && (x & (x - 1)) == 0;
@@ -37,6 +31,7 @@ int main(void) {
 
     // --- Case 1: Directly passing offset 7 ---
     uintptr_t raw_address = 7;
+	// 64bit system it aligns memory to 16. DEFAULT_ALIGNMENT should be 16. 32bit system aligns memory to 8. DEFAULT_ALIGNMENT should be 8.
     uintptr_t aligned_address = align_forward(raw_address, align);
 
     printf("--- Case 1: Direct Address Alignment ---\n");
