@@ -12,16 +12,55 @@
 #define DEFAULT_ALIGNMENT (2 * sizeof(void *))
 #endif
 
+#include <stdio.h>
+#include <stdint.h>
+#include <stddef.h>
+#include <stdbool.h>
+#include <assert.h>
 
-int main() {
+bool is_power_of_two(uintptr_t x) {
+    return x > 0 && (x & (x - 1)) == 0;
+}
 
-size_t aligned_size = ALIGN_UP(250, DEFAULT_ALIGNMENT);
-uint32_t alingment = DEFAULT_ALIGNMENT;
+uintptr_t align_forward(uintptr_t ptr, size_t align) {
+    assert(is_power_of_two(align));
+    
+    uintptr_t modulo = ptr & (align - 1);
+    if (modulo != 0) {
+        ptr += align - modulo;
+    }
+    return ptr;
+}
 
-printf("%zu\n", aligned_size);
-printf("%zu\n", alingment);
+int main(void) {
+    size_t align = DEFAULT_ALIGNMENT;
 
+    // --- Case 1: Directly passing offset 7 ---
+    uintptr_t raw_address = 7;
+    uintptr_t aligned_address = align_forward(raw_address, align);
 
+    printf("--- Case 1: Direct Address Alignment ---\n");
+    printf("Raw address:     %zu\n", raw_address);
+    printf("Aligned to %zu:   %zu\n\n", align, aligned_address);
+
+    // --- Case 2: Simulating allocations in an arena ---
+    printf("--- Case 2: Allocating 7 Bytes ---\n");
+    uintptr_t current_offset = 0;
+
+    // First allocation: 7 bytes
+    uintptr_t alloc1_ptr = align_forward(current_offset, align); // align_forward(0, 8) -> 0
+    current_offset = alloc1_ptr + 7;                              // Occupies bytes 0 through 6; next free byte is 7
+
+    printf("Alloc 1 (size 7): Starts at byte %zu, leaves next free offset at byte %zu\n", 
+           alloc1_ptr, current_offset);
+
+    // Second allocation: requires 8-byte alignment
+    uintptr_t alloc2_ptr = align_forward(current_offset, align); // align_forward(7, 8) -> 8
+
+    printf("Alloc 2:          Aligns offset %zu -> Starts at byte %zu (skipped 1 padding byte)\n", 
+           current_offset, alloc2_ptr);
+
+    return 0;
 }
 */
 
