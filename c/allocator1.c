@@ -26,6 +26,28 @@ Arena arena_create(size_t capacity) {
     arena.offset = 0;
     return arena;
 }
+// better
+void* arena_alloc(Arena *arena, size_t size) {
+    // 1. Calculate the current absolute memory address
+    uintptr_t current_ptr = (uintptr_t)&arena->buffer[arena->offset];
+    
+    // 2. Align the absolute pointer up to the required alignment boundary
+    uintptr_t aligned_ptr = ALIGN_UP(current_ptr, DEFAULT_ALIGNMENT);
+    
+    // 3. Calculate the new offset based on the aligned pointer position + requested size
+    size_t new_offset = (aligned_ptr - (uintptr_t)arena->buffer) + size;
+    
+    // Check for out-of-memory
+    if (new_offset > arena->capacity) {
+        printf("Arena Out of Memory!\n");
+        return NULL;
+    }
+    
+    // 4. Update the offset and return the cleanly aligned pointer
+    arena->offset = new_offset;
+    return (void*)aligned_ptr;
+}
+
 
 // 3. Allocate memory from the Arena with automatic alignment
 void* arena_alloc(Arena *arena, size_t size) {
