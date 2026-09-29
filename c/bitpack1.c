@@ -13,7 +13,7 @@ static inline PageID make_page_id(uint32_t table_id, uint32_t page_num) {
 static inline uint32_t get_table_id(PageID id) {
     return (uint32_t)(id >> 32);
 }
-
+// [32 high bits discarded][32 low bit kept]
 // 3. EXTRACT PageNO (Mask out the high 32 bits)
 static inline uint32_t get_page_num(PageID id) {
     return (uint32_t)id; // or (id & 0xFFFFFFFFULL);
