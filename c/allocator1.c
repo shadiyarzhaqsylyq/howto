@@ -31,7 +31,7 @@ int main(void) {
 
     // --- Case 1: Directly passing offset 7 ---
     uintptr_t raw_address = 7;
-	// 64bit system it aligns memory to 16. DEFAULT_ALIGNMENT should be 16. 32bit system aligns memory to 8. DEFAULT_ALIGNMENT should be 8.
+	// 64bit system aligns memory to 16. DEFAULT_ALIGNMENT should be 16. 32bit system aligns memory to 8. DEFAULT_ALIGNMENT should be 8.
     uintptr_t aligned_address = align_forward(raw_address, align);
 
     printf("--- Case 1: Direct Address Alignment ---\n");
