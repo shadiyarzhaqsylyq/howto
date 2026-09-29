@@ -38,10 +38,10 @@ size_t get_bucket_index(uint64_t page_id, size_t num_buckets) {
 
 int main(void) {
     uint32_t tableid = 1;
-    uint32_t pageno = 88;
+    uint32_t pagenumber = 88;
 
     // Declare variable instance of type PageID
-    PageID page_id = make_page_id(tableid, pageno);
+    PageID page_id = make_page_id(tableid, pagenumber);
 
     uint32_t table = get_table_id(page_id);
     uint32_t pagenum = get_page_num(page_id);
