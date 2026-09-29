@@ -9,15 +9,29 @@ typedef uint32_t FrameID;
 
 #define INVALID_PAGE_ID  (~(uint64_t)0)
 #define INVALID_FRAME_ID (~(uint32_t)0)
+#define MAX_LOAD_FACTOR  0.75
 
-// 1. Bit-packing functions
+// Bit-packing utilities
 static inline PageID make_page_id(uint32_t table_id, uint32_t page_num) {
     return ((uint64_t)table_id << 32) | (uint64_t)page_num;
 }
 static inline uint32_t get_table_id(PageID id) { return (uint32_t)(id >> 32); }
 static inline uint32_t get_page_num(PageID id) { return (uint32_t)id; }
 
-// 2. High-performance 64-bit mixer (SplitMix64)
+// Rounds up to the nearest power of 2
+static inline size_t next_pow2(size_t n) {
+    if (n <= 16) return 16;
+    n--;
+    n |= n >> 1;
+    n |= n >> 2;
+    n |= n >> 4;
+    n |= n >> 8;
+    n |= n >> 16;
+    n |= n >> 32;
+    return n + 1;
+}
+
+// 64-bit SplitMix64 Hash Mixer
 static inline uint64_t hash_page_id(PageID key) {
     key ^= key >> 30;
     key *= 0xbf58476d1ce4e5b9ULL;
@@ -27,42 +41,75 @@ static inline uint64_t hash_page_id(PageID key) {
     return key;
 }
 
-// 3. Slot structure (16 bytes per entry: exactly 4 slots per 64-byte cache line)
+// 16-byte slot: 4 slots align perfectly to 64-byte CPU cache lines
 typedef struct {
-    PageID   page_id;   // 8 bytes (INVALID_PAGE_ID if empty)
+    PageID   page_id;   // 8 bytes
     FrameID  frame_id;  // 4 bytes
     uint32_t dib;       // 4 bytes: Distance from Initial Bucket
 } HashSlot;
 
 typedef struct {
     HashSlot *slots;
-    size_t    capacity; // Must be a power of 2
+    size_t    capacity; // Always power of 2
     size_t    mask;     // capacity - 1
     size_t    count;
 } PageTable;
 
-PageTable* page_table_create(size_t capacity) {
-    // Ensure capacity is a power of 2
-    PageTable *pt = (PageTable*)malloc(sizeof(PageTable));
-    pt->capacity = capacity;
-    pt->mask = capacity - 1;
-    pt->count = 0;
-    pt->slots = (HashSlot*)malloc(capacity * sizeof(HashSlot));
+// Forward declaration for dynamic resizing
+static bool page_table_resize(PageTable *pt, size_t new_capacity);
+
+// Helper for allocating 64-byte cache-aligned slot arrays
+static HashSlot* allocate_slots(size_t capacity) {
+    HashSlot *slots = NULL;
+#if defined(_MSC_VER) || defined(__MINGW32__)
+    slots = (HashSlot*)_aligned_malloc(capacity * sizeof(HashSlot), 64);
+#else
+    if (posix_memalign((void**)&slots, 64, capacity * sizeof(HashSlot)) != 0) {
+        return NULL;
+    }
+#endif
+    if (!slots) return NULL;
 
     for (size_t i = 0; i < capacity; i++) {
-        pt->slots[i].page_id = INVALID_PAGE_ID;
-        pt->slots[i].frame_id = INVALID_FRAME_ID;
-        pt->slots[i].dib = 0;
+        slots[i].page_id = INVALID_PAGE_ID;
+        slots[i].frame_id = INVALID_FRAME_ID;
+        slots[i].dib = 0;
     }
+    return slots;
+}
+
+static void free_slots(HashSlot *slots) {
+#if defined(_MSC_VER) || defined(__MINGW32__)
+    _aligned_free(slots);
+#else
+    free(slots);
+#endif
+}
+
+PageTable* page_table_create(size_t initial_capacity) {
+    PageTable *pt = (PageTable*)malloc(sizeof(PageTable));
+    if (!pt) return NULL;
+
+    pt->capacity = next_pow2(initial_capacity);
+    pt->mask = pt->capacity - 1;
+    pt->count = 0;
+    pt->slots = allocate_slots(pt->capacity);
+
+    if (!pt->slots) {
+        free(pt);
+        return NULL;
+    }
+
     return pt;
 }
 
 void page_table_destroy(PageTable *pt) {
-    free(pt->slots);
+    if (!pt) return;
+    free_slots(pt->slots);
     free(pt);
 }
 
-// 4. LOOKUP: O(1) average, with early-exit optimization
+// LOOKUP: O(1) average, with early-exit on smaller DIB
 bool page_table_lookup(const PageTable *pt, PageID page_id, FrameID *out_frame_id) {
     size_t idx = hash_page_id(page_id) & pt->mask;
     uint32_t cur_dib = 0;
@@ -70,21 +117,13 @@ bool page_table_lookup(const PageTable *pt, PageID page_id, FrameID *out_frame_i
     while (true) {
         const HashSlot *slot = &pt->slots[idx];
 
-        // Slot empty -> Key definitely does not exist
-        if (slot->page_id == INVALID_PAGE_ID) {
-            return false;
+        if (slot->page_id == INVALID_PAGE_ID || slot->dib < cur_dib) {
+            return false; // Not found or passed insertion point
         }
 
-        // Key found!
         if (slot->page_id == page_id) {
-            *out_frame_id = slot->frame_id;
+            if (out_frame_id) *out_frame_id = slot->frame_id;
             return true;
-        }
-
-        // Robin Hood early exit: If the slot's DIB is smaller than our current DIB,
-        // the key cannot exist further down the line.
-        if (slot->dib < cur_dib) {
-            return false;
         }
 
         cur_dib++;
@@ -92,71 +131,114 @@ bool page_table_lookup(const PageTable *pt, PageID page_id, FrameID *out_frame_i
     }
 }
 
-// 5. INSERT: "Take from the rich, give to the poor"
-bool page_table_insert(PageTable *pt, PageID page_id, FrameID frame_id) {
-    if (pt->count >= pt->capacity) return false; // Table full
+// Internal raw insertion helper (without load factor check)
+static void page_table_insert_raw(HashSlot *slots, size_t mask, HashSlot incoming) {
+    size_t idx = hash_page_id(incoming.page_id) & mask;
 
+    while (true) {
+        HashSlot *slot = &slots[idx];
+
+        if (slot->page_id == INVALID_PAGE_ID) {
+            *slot = incoming;
+            return;
+        }
+
+        if (slot->page_id == incoming.page_id) {
+            slot->frame_id = incoming.frame_id;
+            return;
+        }
+
+        // Steal from the rich
+        if (incoming.dib > slot->dib) {
+            HashSlot temp = *slot;
+            *slot = incoming;
+            incoming = temp;
+        }
+
+        incoming.dib++;
+        idx = (idx + 1) & mask;
+    }
+}
+
+// Automatically double table capacity when load factor threshold is met
+static bool page_table_resize(PageTable *pt, size_t new_capacity) {
+    HashSlot *new_slots = allocate_slots(new_capacity);
+    if (!new_slots) return false;
+
+    size_t new_mask = new_capacity - 1;
+
+    // Rehash and migrate existing slots
+    for (size_t i = 0; i < pt->capacity; i++) {
+        if (pt->slots[i].page_id != INVALID_PAGE_ID) {
+            HashSlot slot = pt->slots[i];
+            slot.dib = 0; // Reset DIB for new hash placement
+            page_table_insert_raw(new_slots, new_mask, slot);
+        }
+    }
+
+    free_slots(pt->slots);
+    pt->slots = new_slots;
+    pt->capacity = new_capacity;
+    pt->mask = new_mask;
+
+    return true;
+}
+
+// INSERT / UPDATE
+bool page_table_insert(PageTable *pt, PageID page_id, FrameID frame_id) {
+    // 1. If key already exists, update in-place without triggering resize
+    FrameID existing_frame;
+    if (page_table_lookup(pt, page_id, &existing_frame)) {
+        size_t idx = hash_page_id(page_id) & pt->mask;
+        while (pt->slots[idx].page_id != page_id) {
+            idx = (idx + 1) & pt->mask;
+        }
+        pt->slots[idx].frame_id = frame_id;
+        return true;
+    }
+
+    // 2. Check load factor threshold (grow table before inserting if needed)
+    if ((double)(pt->count + 1) / (double)pt->capacity > MAX_LOAD_FACTOR) {
+        if (!page_table_resize(pt, pt->capacity * 2)) {
+            return false; // Re-allocation failed
+        }
+    }
+
+    // 3. Insert new item
     HashSlot incoming = {
         .page_id = page_id,
         .frame_id = frame_id,
         .dib = 0
     };
 
-    size_t idx = hash_page_id(incoming.page_id) & pt->mask;
-
-    while (true) {
-        HashSlot *slot = &pt->slots[idx];
-
-        // 1. Found an empty slot: place here and finish
-        if (slot->page_id == INVALID_PAGE_ID) {
-            *slot = incoming;
-            pt->count++;
-            return true;
-        }
-
-        // 2. Key already exists: update frame mapping
-        if (slot->page_id == incoming.page_id) {
-            slot->frame_id = incoming.frame_id;
-            return true;
-        }
-
-        // 3. Robin Hood swap: The incoming item has traveled further than 
-        // the existing item (it is "poorer"), so it steals the slot.
-        if (incoming.dib > slot->dib) {
-            HashSlot temp = *slot;
-            *slot = incoming;
-            incoming = temp; // Continue inserting the displaced ("richer") item
-        }
-
-        incoming.dib++;
-        idx = (idx + 1) & pt->mask;
-    }
+    page_table_insert_raw(pt->slots, pt->mask, incoming);
+    pt->count++;
+    return true;
 }
 
-// 6. DELETE: Backward-shift deletion (avoids tombstones)
+// DELETE: Backward-shift deletion (avoids tombstones)
 bool page_table_delete(PageTable *pt, PageID page_id) {
     size_t idx = hash_page_id(page_id) & pt->mask;
     uint32_t cur_dib = 0;
 
-    // Find the item
+    // Search for key
     while (true) {
         HashSlot *slot = &pt->slots[idx];
         if (slot->page_id == INVALID_PAGE_ID || slot->dib < cur_dib) {
-            return false; // Not found
+            return false; // Key not present
         }
         if (slot->page_id == page_id) {
-            break; // Found at 'idx'
+            break;
         }
         cur_dib++;
         idx = (idx + 1) & pt->mask;
     }
 
-    // Backward shift subsequent items to fill the hole
+    // Backward shift subsequent items to fill the gap
     while (true) {
         size_t next_idx = (idx + 1) & pt->mask;
         HashSlot *next_slot = &pt->slots[next_idx];
 
-        // Stop if next slot is empty or already in its ideal bucket (dib == 0)
         if (next_slot->page_id == INVALID_PAGE_ID || next_slot->dib == 0) {
             pt->slots[idx].page_id = INVALID_PAGE_ID;
             pt->slots[idx].frame_id = INVALID_FRAME_ID;
@@ -164,9 +246,8 @@ bool page_table_delete(PageTable *pt, PageID page_id) {
             break;
         }
 
-        // Shift item backward
         pt->slots[idx] = *next_slot;
-        pt->slots[idx].dib--; // Traveled one slot less now
+        pt->slots[idx].dib--;
         idx = next_idx;
     }
 
@@ -174,32 +255,27 @@ bool page_table_delete(PageTable *pt, PageID page_id) {
     return true;
 }
 
-
 int main() {
-    // Sized for a small buffer pool: 64 slots (power of 2)
-    PageTable *pt = page_table_create(64);
+    PageTable *pt = page_table_create(16);
 
-    PageID p1 = make_page_id(1, 100);
-    PageID p2 = make_page_id(1, 101);
-    PageID p3 = make_page_id(2, 100);
-
-    // Insert mappings: PageID -> FrameID
-    page_table_insert(pt, p1, 0); // maps to buffer frame 0
-    page_table_insert(pt, p2, 1); // maps to buffer frame 1
-    page_table_insert(pt, p3, 2); // maps to buffer frame 2
-
-    // Lookups
-    FrameID frame;
-    if (page_table_lookup(pt, p2, &frame)) {
-        printf("Found Page (table=%u, page=%u) at Frame %u\n",
-               get_table_id(p2), get_page_num(p2), frame);
+    // Insert elements to trigger auto-resizing
+    for (uint32_t i = 0; i < 50; i++) {
+        PageID pid = make_page_id(1, i);
+        page_table_insert(pt, pid, i * 10);
     }
 
-    // Delete an evicted page
-    page_table_delete(pt, p2);
+    printf("Table count: %zu, capacity: %zu\n", pt->count, pt->capacity);
 
-    if (!page_table_lookup(pt, p2, &frame)) {
-        printf("Page p2 successfully evicted / removed.\n");
+    FrameID frame;
+    PageID target = make_page_id(1, 25);
+    if (page_table_lookup(pt, target, &frame)) {
+        printf("Page 25 found at Frame %u\n", frame);
+    }
+
+    // Delete item
+    page_table_delete(pt, target);
+    if (!page_table_lookup(pt, target, NULL)) {
+        printf("Page 25 successfully deleted.\n");
     }
 
     page_table_destroy(pt);
