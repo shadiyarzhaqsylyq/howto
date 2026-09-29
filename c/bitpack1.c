@@ -38,7 +38,7 @@ size_t get_bucket_index(uint64_t page_id, size_t num_buckets) {
 
 int main(void) {
     uint32_t tableid = 1;
-    uint32_t pagenumber = 88;
+    uint32_t pagenumber = 2;
 
     // Declare variable instance of type PageID
     PageID page_id = make_page_id(tableid, pagenumber);
@@ -46,9 +46,11 @@ int main(void) {
     uint32_t table = get_table_id(page_id);
     uint32_t pagenum = get_page_num(page_id);
 
-    printf("PageID = %" PRIu64 "\n", page_id);
-    printf("TableID = %" PRIu32 "\n", table);
-    printf("Page Number = %" PRIu32 "\n", pagenum);
+    printf("PageID = %llu\n", page_id); // or printf("PageID = llu%\n", (unsigned long long)page_id) for uint64_t
+    printf("TableID = %u\n", table); //or printf("PageID = u%\n", (unsigned int)page_id) for uint32_t
+    printf("Page Number = %u\n", (unsigned int)pagenum);
+	// printf("%d\n", (int)page_id) for int32_t
+	//  printf("%lld\n", (long long)page_id) for int64_t
 
     return 0;
 }
