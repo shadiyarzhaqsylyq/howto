@@ -29,6 +29,16 @@ static inline uint64_t hash_page_id(uint64_t page_id) {
     return z ^ (z >> 31);
 }
 
+//2. High-performance 64-bit mixer (SplitMix64)
+static inline uint64_t hash_page_id2(PageID key) {
+    key ^= key >> 30;
+    key *= 0xbf58476d1ce4e5b9ULL;
+    key ^= key >> 27;
+    key *= 0x94d049bb133111ebULL;
+    key ^= key >> 31;
+    return key;
+}
+
 // Example usage in the Page Table
 // Power of Two
 size_t get_bucket_index(uint64_t page_id, size_t num_buckets) {
