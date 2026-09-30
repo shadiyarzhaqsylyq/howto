@@ -35,6 +35,27 @@ next_pow2 :: proc(n: uint) -> uint {
 	x |= x >> 32
 	return x + 1
 }
+//Alternative
+package main
+
+import "core:math/bits"
+
+// 2 * size_of(rawptr) evaluates to 16 on 64-bit platforms
+DEFAULT_ALIGNMENT :: 2 * size_of(rawptr)
+
+is_power_of_two :: proc(x: uintptr) -> bool {
+	// Odin handles bitwise operations natively on uintptr
+	return x > 0 && (x & (x - 1)) == 0
+}
+
+align_forward :: proc(ptr: uintptr, align: uintptr) -> uintptr {
+	// Replacing asserts: Odin has a built-in 'assert' in the runtime
+	assert(is_power_of_two(align), "Alignment must be a power of two")
+	
+	// Ultra-fast branchless math: rounds up to the next multiple of 'align'
+	return (ptr + (align - 1)) &~ (align - 1)
+}
+
 
 // 64-bit SplitMix64 Hash Mixer
 hash_page_id :: #force_inline proc(key: PageID) -> u64 {
