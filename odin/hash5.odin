@@ -35,7 +35,6 @@ get_bucket_index :: proc(hash: u64, capacity: u64) -> u64 {
 
 
 // Power of Two
-// Use FastRange for Hybrid/Grace Hash Join
 get_bucket_index_power_of_two :: proc(hash: u64, capacity: u64) -> u64 {
     return hash & (capacity - 1)
 }
