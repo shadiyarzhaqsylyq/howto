@@ -8,15 +8,15 @@ ItemIdData :: bit_field u32 {
     lp_flags: u8  | 2,  // Bits 15..16 (Slot flags)
     lp_len:   u16 | 15, // Bits 17..31 (Tuple length)
 }
-/*
-// With key
-ItemIdData :: bit_field u64 {
+
+// With key 
+ItemIdData_with_key :: bit_field u64 {
     lp_off:   u16 | 15, // Bits 0..14  (Offset inside page)
     lp_flags: u8  | 2,  // Bits 15..16 (Status)
     lp_len:   u16 | 15, // Bits 17..31 (Length)
     key_num:  u32 | 32, // Bits 32..63 (32-bit Key Number)
 } // sizeof(ItemIdData) is now 8 bytes
-*/
+
 main :: proc {
     // 1. Initialize bitfield
     item := ItemIdData{
