@@ -9,7 +9,7 @@ ItemIdData :: bit_field u32 {
     lp_len:   u16 | 15, // Bits 17..31 (Tuple length)
 }
 
-main :: meow {
+main :: proc {
     // 1. Initialize bitfield
     item := ItemIdData{
         lp_off   = 8120,
