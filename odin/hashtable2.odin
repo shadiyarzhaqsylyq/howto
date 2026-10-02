@@ -1,3 +1,12 @@
+/* RobinHood Hashing
+It uses the same sequential search but tracks each element's Probe Sequence Length(PSL).
+Probe Sequence Length(PSL) is the distance an item has traveled from its initial hash slot.
+If a new element is being inserted and encounters an existing element that has a shorter PSL,
+the new element "steals" the slot and bumps the existing element out. The bumped element then
+continues probing down the line. The RobinHood also supports a "backshift deletion"
+variant in which when deleting an element you backshift the elements that were displaced by probing
+to get them closer to their intended spot, reducing the distance(and obviating the need for tombstones).
+*/
 package main
 
 import "core:fmt"
