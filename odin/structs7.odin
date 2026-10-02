@@ -29,10 +29,10 @@ Page_Header2 :: struct #packed {
 main :: proc() {
     // Get size by passing the type
     struct_size := size_of(Page_Header)
-    fmt.println("Size of Page_Header:", struct_size) // Outputs: 16 (due to 8-byte alignment)
+    fmt.println("Size of Page_Header:", struct_size) // Outputs: 28 
 
     struct_size2 := size_of(Page_Header2)
-    fmt.println("Size of Page_Header:", struct_size2) // Outputs: 16 (due to 8-byte alignment)
+    fmt.println("Size of Page_Header:", struct_size2) // Outputs: 32
 
 
 
