@@ -6,9 +6,13 @@ import "core:hash/xxhash"
 
 // Daniel Lemire (Fastrange)
 //Prefer this for Grace/Hybrid Hash Join
-get_bucket_index1 :: proc(hash: u64, capacity: u64) -> u64 {
+get_bucket_index :: proc(hash: u64, capacity: u64) -> u64 {
     product := u128(hash) * u128(capacity)
     return u64(product >> 64)
+}
+// Power of Two
+get_bucket_index_power_of_2 :: proc(hash: u64, capacity: u64) -> u64 {
+    return hash & (capacity - 1)
 }
 
 
