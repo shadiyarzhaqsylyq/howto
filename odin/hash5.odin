@@ -63,14 +63,14 @@ hash_short_composite :: proc(key: ^Short_Composite_Key) -> u64 {
 	return hash_combine(h1, h2)
 }
 //Alternative
-hash_short_composite_optimized :: #force_inline proc(key: ^Short_Composite_Key) -> u64 {
+hash_short_composite2 :: #force_inline proc(key: ^Short_Composite_Key) -> u64 {
 	return hash_combine(key.order_id, key.user_id)
 }
 
 
 
 main :: proc() {
-    CAPACITY: u64 = 1024
+    CAPACITY: u64 = 16
 
 	
 
