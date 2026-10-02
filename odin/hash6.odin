@@ -6,10 +6,11 @@ import "core:hash/xxhash"
 
 // Daniel Lemire (Fastrange)
 //Prefer this for Grace/Hybrid Hash Join
-get_bucket_index :: proc(hash: u64, capacity: u64) -> u64 {
+get_bucket_index1 :: proc(hash: u64, capacity: u64) -> u64 {
     product := u128(hash) * u128(capacity)
     return u64(product >> 64)
 }
+
 
 // JOIN ON a.id = b.id
 splitmix64 :: #force_inline proc(x: u64) -> u64 {
@@ -35,19 +36,6 @@ hash_mixed_with_string1 :: proc(tenant_id: u64, dept: string, seed: u64 = 0) -> 
 // 3 columns
 // JOIN ON a.order_id = b.order_id AND a.user_id = b.user_id AND a.dept = b.dept
 hash_mixed_with_string2 :: proc(key: ^Short_Composite_Key, dept: string, seed: u64 = 0) -> u64 {
-    // 1. Hash the string once with XXH64
-    h_str := xxhash.XXH64(transmute([]u8)dept, seed)
-
-    // 2. Mix the two fixed fields without losing any bits
-    h_tenant := splitmix64(u64(key.order_id))
-    h_user   := splitmix64(key.user_id)
-    h_fixed  := hash_combine(h_tenant, h_user)
-
-    // 3. Combine fixed part + string part
-    return hash_combine(h_fixed, h_str)
-}
-
-hash_mixed_with_string2_optimized :: proc(key: ^Short_Composite_Key, dept: string, seed: u64 = 0) -> u64 {
     // 1. Hash the string once
     h_str := xxhash.XXH64(transmute([]u8)dept, seed)
 
@@ -59,7 +47,7 @@ hash_mixed_with_string2_optimized :: proc(key: ^Short_Composite_Key, dept: strin
 }
 
 // 2. Short Fixed Key (<= 16B)
-// JOIN ON a.tenant_id = b.tenant_id AND a.user_id = b.user_id
+// JOIN ON a.order_id = b.order_id AND a.user_id = b.user_id
 Short_Composite_Key :: struct {
 	order_id: u64,
 	user_id:  u64,
@@ -76,34 +64,9 @@ hash_short_composite_optimized :: #force_inline proc(key: ^Short_Composite_Key) 
 }
 
 
-// 3. Wide Fixed Key (>= 24B)
-Wide_Composite_Key :: struct #packed {
-	tenant_id:   u64,
-	account_id:  u64,
-	region_id:   u64,
-	status_flag: u8,
-}
-
-hash_wide_composite :: proc(key: ^Wide_Composite_Key, seed: u64 = 0) -> u64 {
-	bytes := mem.byte_slice(key, size_of(Wide_Composite_Key))
-	return xxhash.XXH64(bytes, seed)
-}
 
 main :: proc() {
-	wide_key := Wide_Composite_Key{
-		tenant_id   = 1,
-		account_id  = 5555,
-		region_id   = 99,
-		status_flag = 1,
-	}
-	h1 := hash_wide_composite(&wide_key)
-	fmt.printf("[Technique 3 - Wide >=24B]  Hash: 0x%016X\n", h1)
-
-
-
-
-
-    CAPACITY: u64 = 1000
+    CAPACITY: u64 = 1024
 
 	
 
