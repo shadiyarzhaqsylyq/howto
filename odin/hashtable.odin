@@ -8,7 +8,7 @@ Frame_ID :: distinct u32
 Slot_State :: enum u8 {
 	EMPTY,
 	OCCUPIED,
-	TOMBSTONE, // Page was deleted/evicted, probe must continue
+	TOMBSTONE, // Retained so probing does not break after deletions
 }
 
 Bucket :: struct {
@@ -18,13 +18,12 @@ Bucket :: struct {
 }
 
 Buffer_Pool_Table :: struct {
-	buckets:  []Bucket,
-	count:    int,
-	capacity: int,
+	buckets: []Bucket,
+	count:   int,
+	mask:    int, // (capacity - 1), used for fast bitwise indexing
 }
 
-// SplitMix64: High-quality, fast hash mixer for 64-bit integers.
-// Eliminates clustering when Page IDs are sequential (e.g., 1, 2, 3...).
+// SplitMix64: High-speed 64-bit mixer that avalanches consecutive/incremental Page IDs
 splitmix64 :: proc(x: u64) -> u64 {
 	z := x + 0x9e3779b97f4a7c15
 	z = (z ~ (z >> 30)) * 0xbf58476d1ce4e5b9
@@ -32,39 +31,44 @@ splitmix64 :: proc(x: u64) -> u64 {
 	return z ~ (z >> 31)
 }
 
+// Creates the hash table. Capacity MUST be a power of 2 (e.g., 8, 16, 64, 1024...).
 create_table :: proc(capacity: int, allocator := context.allocator) -> Buffer_Pool_Table {
+	assert(
+		capacity > 0 && (capacity & (capacity - 1)) == 0,
+		"Capacity must be a valid power of 2!",
+	)
+
 	return Buffer_Pool_Table{
-		buckets  = make([]Bucket, capacity, allocator),
-		count    = 0,
-		capacity = capacity,
+		buckets = make([]Bucket, capacity, allocator),
+		count   = 0,
+		mask    = capacity - 1,
 	}
 }
 
 destroy_table :: proc(table: ^Buffer_Pool_Table, allocator := context.allocator) {
 	delete(table.buckets, allocator)
+	table^ = {}
 }
 
 insert :: proc(table: ^Buffer_Pool_Table, page_id: Page_ID, frame_id: Frame_ID) -> bool {
-	if table.count >= table.capacity {
-		return false // Table is full (in practice, keep load factor < 70%)
+	// Table is full (keep load factor under ~75% in real systems)
+	if table.count >= len(table.buckets) {
+		return false
 	}
 
-	// Compute start index using SplitMix
-	idx := int(splitmix64(u64(page_id)) % u64(table.capacity))
+	mask := table.mask
+	curr_idx := int(splitmix64(u64(page_id))) & mask
 	first_tombstone := -1
 
-	// Linear Probing: probe (idx + i)
-	for i in 0 ..< table.capacity {
-		curr_idx := (idx + i) % table.capacity
+	for _ in 0 ..= mask {
 		bucket := &table.buckets[curr_idx]
 
 		switch bucket.state {
 		case .EMPTY:
-			// Hit empty slot -> key definitely does not exist further ahead.
-			// Reuse an earlier tombstone if we saw one, otherwise use this empty slot.
+			// Hit an empty slot: key does not exist further in the probe sequence.
 			target_idx := curr_idx
 			if first_tombstone != -1 {
-				target_idx = first_tombstone
+				target_idx = first_tombstone // Prioritize recycling an existing tombstone
 			}
 
 			table.buckets[target_idx] = Bucket{
@@ -76,21 +80,24 @@ insert :: proc(table: ^Buffer_Pool_Table, page_id: Page_ID, frame_id: Frame_ID) 
 			return true
 
 		case .TOMBSTONE:
-			// Remember the first tombstone we encountered to reuse its slot
+			// Remember the first tombstone encountered for reuse
 			if first_tombstone == -1 {
 				first_tombstone = curr_idx
 			}
 
 		case .OCCUPIED:
-			// Update if page_id already exists in the buffer pool
+			// Page is already present in the buffer pool, update frame mapping
 			if bucket.page_id == page_id {
 				bucket.frame_id = frame_id
 				return true
 			}
 		}
+
+		// Fast bitwise probe advance & wrap-around
+		curr_idx = (curr_idx + 1) & mask
 	}
 
-	// If we scanned the whole table and found a tombstone, insert there
+	// If we looped around and found an earlier tombstone, insert there
 	if first_tombstone != -1 {
 		table.buckets[first_tombstone] = Bucket{
 			state    = .OCCUPIED,
@@ -105,33 +112,34 @@ insert :: proc(table: ^Buffer_Pool_Table, page_id: Page_ID, frame_id: Frame_ID) 
 }
 
 search :: proc(table: ^Buffer_Pool_Table, page_id: Page_ID) -> (Frame_ID, bool) {
-	idx := int(splitmix64(u64(page_id)) % u64(table.capacity))
+	mask := table.mask
+	curr_idx := int(splitmix64(u64(page_id))) & mask
 
-	for i in 0 ..< table.capacity {
-		curr_idx := (idx + i) % table.capacity
+	for _ in 0 ..= mask {
 		bucket := &table.buckets[curr_idx]
 
 		#partial switch bucket.state {
 		case .EMPTY:
-			// Stop probing: page is not in the buffer pool
-			return 0, false
+			return 0, false // Page not in buffer pool
 
 		case .OCCUPIED:
 			if bucket.page_id == page_id {
-				return bucket.frame_id, true
+				return bucket.frame_id, true // Page hit!
 			}
-		// If it's a TOMBSTONE, do nothing and keep probing forward
+		// Skip TOMBSTONE and continue linear probing
 		}
+
+		curr_idx = (curr_idx + 1) & mask
 	}
 
 	return 0, false
 }
 
 delete_page :: proc(table: ^Buffer_Pool_Table, page_id: Page_ID) -> bool {
-	idx := int(splitmix64(u64(page_id)) % u64(table.capacity))
+	mask := table.mask
+	curr_idx := int(splitmix64(u64(page_id))) & mask
 
-	for i in 0 ..< table.capacity {
-		curr_idx := (idx + i) % table.capacity
+	for _ in 0 ..= mask {
 		bucket := &table.buckets[curr_idx]
 
 		#partial switch bucket.state {
@@ -140,19 +148,21 @@ delete_page :: proc(table: ^Buffer_Pool_Table, page_id: Page_ID) -> bool {
 
 		case .OCCUPIED:
 			if bucket.page_id == page_id {
-				bucket.state = .TOMBSTONE // Evict from hash table
+				bucket.state = .TOMBSTONE // Mark slot as evicted
 				table.count -= 1
 				return true
 			}
 		}
+
+		curr_idx = (curr_idx + 1) & mask
 	}
 
 	return false
 }
 
 print_table :: proc(table: ^Buffer_Pool_Table) {
-	fmt.println("--- Table State ---")
-	for i in 0 ..< table.capacity {
+	fmt.println("\n--- Buffer Pool Hash Table ---")
+	for i in 0 ..< len(table.buckets) {
 		bucket := table.buckets[i]
 		switch bucket.state {
 		case .EMPTY:
@@ -160,36 +170,44 @@ print_table :: proc(table: ^Buffer_Pool_Table) {
 		case .TOMBSTONE:
 			fmt.printf("Slot [%2d]: [TOMBSTONE]\n", i)
 		case .OCCUPIED:
-			fmt.printf("Slot [%2d]: Page %-4d -> Frame %d\n", i, bucket.page_id, bucket.frame_id)
+			fmt.printf("Slot [%2d]: OCCUPIED (Page %-3d -> Frame %d)\n", i, bucket.page_id, bucket.frame_id)
 		}
 	}
-	fmt.println("-------------------")
+	fmt.printf("Total Count: %d / %d\n", table.count, len(table.buckets))
+	fmt.println("------------------------------")
 }
 
 main :: proc() {
-	// Example: Buffer pool with 7 table slots
-	table := create_table(7)
+	// 1. Capacity must be a power of 2 (8 slots)
+	table := create_table(8)
 	defer destroy_table(&table)
 
-	// Insert some pages mapped to frame numbers
-	insert(&table, Page_ID(10), Frame_ID(0))
-	insert(&table, Page_ID(17), Frame_ID(1)) // Likely collides or probes near 10
-	insert(&table, Page_ID(99), Frame_ID(2))
+	// 2. Insert sequential Page IDs (common in table scans)
+	insert(&table, Page_ID(100), Frame_ID(0))
+	insert(&table, Page_ID(101), Frame_ID(1))
+	insert(&table, Page_ID(102), Frame_ID(2))
+	insert(&table, Page_ID(103), Frame_ID(3))
 
 	print_table(&table)
 
-	// Lookup Page 17
-	if frame, ok := search(&table, Page_ID(17)); ok {
-		fmt.printf("\nFound Page 17 in Frame %d\n\n", frame)
+	// 3. Search for a page
+	target_page := Page_ID(102)
+	if frame, ok := search(&table, target_page); ok {
+		fmt.printf("\nHit! Page %d is stored in Frame %d\n", target_page, frame)
 	}
 
-	// Evict / Remove Page 10
-	fmt.println("Evicting Page 10...")
-	delete_page(&table, Page_ID(10))
+	// 4. Evict a page (transforms slot to TOMBSTONE)
+	fmt.printf("\nEvicting Page 101 from Buffer Pool...\n")
+	delete_page(&table, Page_ID(101))
 	print_table(&table)
 
-	// Search for Page 17 again (verifies that probe walks PAST the tombstone)
-	if frame, ok := search(&table, Page_ID(17)); ok {
-		fmt.printf("\nSuccessfully bypassed tombstone: Page 17 is in Frame %d\n", frame)
+	// 5. Lookup page 102 again (verifies linear probe bypasses the tombstone)
+	if frame, ok := search(&table, target_page); ok {
+		fmt.printf("\nSuccessfully bypassed tombstone: Page %d is still in Frame %d\n", target_page, frame)
 	}
+
+	// 6. Insert a new page (verifies tombstone reuse)
+	fmt.printf("\nInserting Page 200 (recycles first available tombstone or empty slot)...\n")
+	insert(&table, Page_ID(200), Frame_ID(7))
+	print_table(&table)
 }
