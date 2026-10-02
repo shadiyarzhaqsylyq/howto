@@ -7,12 +7,15 @@ first available empty slot and places the new element there. This means early el
 stay close to their original hash slot("rich"), while late-arriving elements can be pushed very 
 far away("poor"), leading to high variance in lookup times.
 
-Index, Status, Page ID, Frame ID
-Slot[0], OCCUPIED, 102, Frame 5
-Slot[1], OCCUPIED, 454, Frame 12
-Slot[2], OCCUPIED, 15, Frame 1
-Slot[0], EMPTY, ..., ...
-Slot[0], EMPTY, ..., ...
+Index   | Status   | Page ID | Frame ID
+Slot[0] | Empty    |         | 
+Slot[1] | OCCUPIED | 102     | Frame 5
+Slot[2] | OCCUPIED | 454     | Frame 12
+Slot[3] | OCCUPIED | 15      | Frame 1
+Slot[4] | EMPTY    | 
+Slot[5] | EMPTY    | 
+
+
 */
 import "core:fmt"
 
