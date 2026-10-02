@@ -55,7 +55,7 @@ align_forward :: proc(ptr: uintptr, align: uintptr) -> uintptr {
 	// Ultra-fast branchless math: rounds up to the next multiple of 'align'
 	return (ptr + (align - 1)) &~ (align - 1)
 }
-
+// Alternative
 
 // 64-bit SplitMix64 Hash Mixer
 hash_page_id :: #force_inline proc(key: PageID) -> u64 {
