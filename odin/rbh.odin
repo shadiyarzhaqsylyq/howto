@@ -1,29 +1,5 @@
 package main
-/*
-Hash Table
-Open Addressing(Linear Probing)
-When collision occurs, the algorithm searches forward sequentially until finds the
-first available empty slot and places the new element there. This means early elements
-stay close to their original hash slot("rich"), while late-arriving elements can be pushed very 
-far away("poor"), leading to high variance in lookup times.
 
-RobinHood Hashing
-It uses the same sequential search but tracks each element's Probe Sequence Length(PSL).
-Probe Sequence Length(PSL) is the distance an item has traveled from its initial hash slot.
-If a new element is being inserted and encounters an existing element that has a shorter PSL,
-the new element "steals" the slot and bumps the existing element out. The bumped element then
-continues probing down the line. The RobinHood also supports a "backshift deletion"
-variant in which when deleting an element you backshift the elements that were displaced by probing
-to get them closer to their intended spot, reducing the distance(and obviating the need for tombstones).
-
-
-Index, Status, Page ID, Frame ID
-Slot[0], OCCUPIED, 102, Frame 5
-Slot[1], OCCUPIED, 454, Frame 12
-Slot[2], OCCUPIED, 15, Frame 1
-Slot[0], EMPTY, ..., ...
-Slot[0], EMPTY, ..., ...
-*/
 import "core:fmt"
 import "core:mem"
 
