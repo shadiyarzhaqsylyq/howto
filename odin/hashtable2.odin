@@ -62,7 +62,7 @@ align_forward :: proc(ptr: uintptr, align: uintptr) -> uintptr {
 	assert(is_power_of_two(align), "Alignment must be a power of two")
 	
 	// Ultra-fast branchless math: rounds up to the next multiple of 'align'
-	return (ptr + (align - 1)) &~ (align - 1)
+	return (ptr + align - 1) & ~(align - 1)
 }
 // Alternative
 
