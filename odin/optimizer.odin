@@ -348,6 +348,23 @@ main :: proc() {
 	// users.id = 0
 	// orders.user_id = 0, orders.id = 1
 	// lineitem.order_id = 1
+/*
+Table 0 "users"
+[Col 0] id <-- COL_USERS_ID :: 0
+[Col 1] name
+[Col 2] email
+
+Table 1 "orders"
+[Col 0] user_id <-- COL_ORDERS_ID :: 0
+[Col 1] id <-- COL_ORDERS_ID :: 1
+[Col 2] amount
+
+Table 2 "lineitem"
+[Col 0] id
+[Col 1] order_id <-- COL_LINEITEM_OID :: 1
+[Col 2] price
+
+*/
 	COL_USERS_ID     :: 0
 	COL_ORDERS_USERID :: 0
 	COL_ORDERS_ID     :: 1
