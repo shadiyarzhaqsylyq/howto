@@ -1,311 +1,401 @@
-//DPhyp
+/* System R Sellinger Optimizer
+
+*/
+
 package main
 
 import "core:fmt"
+import "core:math"
 import "core:math/bits"
+import "core:mem"
 
-MAX_RELATIONS :: 64
-MAX_EDGES     :: 128
+// Hardware cost constants (relative CPU / I/O weights)
+PAGE_IO_COST     :: 1.0     // Cost to read 1 disk page
+CPU_TUPLE_COST   :: 0.01    // Cost to evaluate 1 tuple in CPU
+HASH_BUILD_COST  :: 0.02    // Cost to insert 1 tuple into hash table
+HASH_PROBE_COST  :: 0.015   // Cost to probe hash table
+SORT_FACTOR      :: 0.05    // N log N sorting multiplier
 
+NO_ORDER         :: -1
+MAX_RELATIONS    :: 32
+
+Col_ID   :: int
 Node_Set :: u64
 
-/* --- Query Graph & Plan Structures --- */
+/* --- Schema & Catalog Structures --- */
 
-Hyper_Edge :: struct {
-	u:           Node_Set, // Hypernode u
-	v:           Node_Set, // Hypernode v (u and v are disjoint)
-	selectivity: f64,      // Predicate selectivity
+Index :: struct {
+	name:      string,
+	col:       Col_ID,
+	clustered: bool,
+	pages:     f64,
 }
 
-Hyper_Graph :: struct {
-	num_nodes:          int,
-	node_names:         [MAX_RELATIONS]string,
-	base_cardinalities: [MAX_RELATIONS]f64,
-	edges:              [MAX_EDGES]Hyper_Edge,
-	num_edges:          int,
+Table :: struct {
+	id:        int,
+	name:      string,
+	row_count: f64,
+	pages:     f64,
+	indexes:   [dynamic]Index,
+}
+
+Join_Predicate :: struct {
+	t1:          int,
+	c1:          Col_ID,
+	t2:          int,
+	c2:          Col_ID,
+	selectivity: f64,
+}
+
+Query :: struct {
+	tables:             [dynamic]Table,
+	joins:              [dynamic]Join_Predicate,
+	interesting_orders: [dynamic]Col_ID, // e.g. from ORDER BY / GROUP BY
+}
+
+/* --- Plan Representation --- */
+
+Plan_Type :: enum {
+	Seq_Scan,
+	Index_Scan,
+	Nested_Loop_Join,
+	Index_Join,
+	Hash_Join,
+	Sort,
 }
 
 Plan :: struct {
-	relations:   Node_Set, // Set of relations joined in this plan
-	cost:        f64,      // Plan cost
-	cardinality: f64,      // Estimated output cardinality
+	type:        Plan_Type,
+	cost:        f64,
+	cardinality: f64,
+	order:       Col_ID,   // Sorted column, or NO_ORDER
+	relations:   Node_Set, // Bitmask of tables in this plan
 	left:        ^Plan,    // Left subplan
-	right:       ^Plan,    // Right subplan
+	right:       ^Plan,    // Base table plan for Left-Deep (nil for scans)
+	table_id:    int,      // For scans
+	index_name:  string,   // For index scans
 }
 
-// DP Table maps node sets to optimal plans
-DP_Table :: map[Node_Set]^Plan
-
-/* --- Helper Bit Utilities --- */
-
-// Lowest index bit (min(S) in paper)
-get_min_node :: proc(s: Node_Set) -> int {
-	return int(bits.count_trailing_zeros(s))
+Optimizer :: struct {
+	arena:     mem.Arena,
+	allocator: mem.Allocator,
+	query:     ^Query,
+	dp_table:  map[Node_Set][dynamic]^Plan,
 }
 
-// B_v = {w | w <= v}, where node ordering is 0 < 1 < ... < n-1
-get_B :: proc(node_idx: int) -> Node_Set {
-	if node_idx >= 63 do return ~Node_Set(0)
-	return (Node_Set(1) << u32(node_idx + 1)) - 1
+/* --- Helpers --- */
+
+make_plan :: proc(opt: ^Optimizer, type: Plan_Type) -> ^Plan {
+	p := new(Plan, opt.allocator)
+	p.type = type
+	p.order = NO_ORDER
+	return p
 }
 
-/* Checks if there is a hyperedge connecting S1 and S2 */
-is_connected :: proc(g: ^Hyper_Graph, S1, S2: Node_Set) -> bool {
-	for i in 0 ..< g.num_edges {
-		u := g.edges[i].u
-		v := g.edges[i].v
-		if ((u & S1) == u && (v & S2) == v) || ((v & S1) == v && (u & S2) == u) {
-			return true
-		}
+is_order_interesting :: proc(q: ^Query, col: Col_ID) -> bool {
+	if col == NO_ORDER do return false
+	for o in q.interesting_orders {
+		if o == col do return true
 	}
 	return false
 }
 
-/* Computes N(S, X): the neighborhood of S excluding X (Eq. 1 in paper) */
-calc_neighborhood :: proc(g: ^Hyper_Graph, S, X: Node_Set) -> Node_Set {
-	candidates: [MAX_EDGES * 2]Node_Set
-	cand_count := 0
+// Pruning Rule: For subset S, keep the cheapest plan overall AND the
+// cheapest plan for each interesting order.
+prune_or_add_plan :: proc(opt: ^Optimizer, s: Node_Set, candidate: ^Plan) {
+	plans := &opt.dp_table[s]
 
-	// Collect all interesting target hypernodes
-	for i in 0 ..< g.num_edges {
-		u := g.edges[i].u
-		v := g.edges[i].v
+	for i := 0; i < len(plans); i += 1 {
+		existing := plans[i]
 
-		if (u & S) == u && (v & (S | X)) == 0 {
-			candidates[cand_count] = v
-			cand_count += 1
-		}
-		if (v & S) == v && (u & (S | X)) == 0 {
-			candidates[cand_count] = u
-			cand_count += 1
+		// If same sort property
+		if existing.order == candidate.order {
+			if candidate.cost < existing.cost {
+				plans[i] = candidate // Found a cheaper plan with the same order
+			}
+			return
 		}
 	}
 
-	// Eliminate subsumed hypernodes (E_down(S, X))
-	N: Node_Set = 0
-	for i in 0 ..< cand_count {
-		subsumed := false
-		for j in 0 ..< cand_count {
-			if i != j && (candidates[j] & candidates[i]) == candidates[j] && candidates[j] != candidates[i] {
-				subsumed = true
-				break
+	// If it provides a new distinct interesting order, or is the first plan
+	append(plans, candidate)
+}
+
+find_join_predicate :: proc(q: ^Query, s1: Node_Set, t2_id: int) -> (Join_Predicate, bool) {
+	for jp in q.joins {
+		t1_in_s1 := (Node_Set(1) << u32(jp.t1) & s1) != 0
+		t2_in_s1 := (Node_Set(1) << u32(jp.t2) & s1) != 0
+
+		if (t1_in_s1 && jp.t2 == t2_id) || (t2_in_s1 && jp.t1 == t2_id) {
+			return jp, true
+		}
+	}
+	return Join_Predicate{}, false
+}
+
+/* --- Phase 1: Single-Relation Access Paths --- */
+
+enumerate_single_relations :: proc(opt: ^Optimizer) {
+	for &t in opt.query.tables {
+		s := Node_Set(1) << u32(t.id)
+		opt.dp_table[s] = make([dynamic]^Plan, opt.allocator)
+
+		// 1. Sequential Table Scan
+		seq := make_plan(opt, .Seq_Scan)
+		seq.relations = s
+		seq.table_id = t.id
+		seq.cardinality = t.row_count
+		seq.cost = (t.pages * PAGE_IO_COST) + (t.row_count * CPU_TUPLE_COST)
+		seq.order = NO_ORDER
+		prune_or_add_plan(opt, s, seq)
+
+		// 2. Index Scans
+		for idx in t.indexes {
+			iscan := make_plan(opt, .Index_Scan)
+			iscan.relations = s
+			iscan.table_id = t.id
+			iscan.index_name = idx.name
+			iscan.cardinality = t.row_count
+
+			// Clustered indexes avoid separate heap page random lookups
+			io_cost := idx.pages * PAGE_IO_COST
+			if !idx.clustered {
+				io_cost += t.row_count * PAGE_IO_COST // Unclustered pointer chase
+			}
+
+			iscan.cost = io_cost + (t.row_count * CPU_TUPLE_COST)
+			iscan.order = idx.col // Physical sort order established by index!
+
+			prune_or_add_plan(opt, s, iscan)
+		}
+	}
+}
+
+/* --- Phase 2: Left-Deep Join Enumeration --- */
+
+enumerate_joins :: proc(opt: ^Optimizer) {
+	n := len(opt.query.tables)
+
+	// Level-by-level (size k = 2 ... n)
+	for size := 2; size <= n; size += 1 {
+		for mask in 1 ..< (u32(1) << u32(n)) {
+			if int(bits.count_ones(mask)) != size do continue
+
+			s := Node_Set(mask)
+			opt.dp_table[s] = make([dynamic]^Plan, opt.allocator)
+
+			// Left-Deep rule: Plan(k) = Plan(k-1) ⨝ BaseTable(R)
+			for t_idx in 0 ..< n {
+				t_mask := Node_Set(1) << u32(t_idx)
+				if (s & t_mask) == 0 do continue
+
+				s_prime := s & ~t_mask // Subplan of size k - 1
+				if !(s_prime in opt.dp_table) do continue
+
+				jp, connected := find_join_predicate(opt.query, s_prime, t_idx)
+				if !connected {
+					// Selinger skips Cartesian products if connected joins exist
+					continue
+				}
+
+				base_plans := opt.dp_table[t_mask]
+				left_plans := opt.dp_table[s_prime]
+
+				for p_left in left_plans {
+					for p_right in base_plans {
+						card := p_left.cardinality * p_right.cardinality * jp.selectivity
+
+						// --- Operator A: Hash Join ---
+						// Builds hash table on right (base table), probes with stream from left
+						hj := make_plan(opt, .Hash_Join)
+						hj.relations = s
+						hj.cardinality = card
+						hj.left = p_left
+						hj.right = p_right
+						hj.cost = p_left.cost + p_right.cost + 
+						          (p_right.cardinality * HASH_BUILD_COST) + 
+						          (p_left.cardinality * HASH_PROBE_COST)
+						hj.order = NO_ORDER // Hash join destroys order
+						prune_or_add_plan(opt, s, hj)
+
+						// --- Operator B: Nested Loop Join ---
+						// Pipelined: Outer (left) loop scans inner (right)
+						nlj := make_plan(opt, .Nested_Loop_Join)
+						nlj.relations = s
+						nlj.cardinality = card
+						nlj.left = p_left
+						nlj.right = p_right
+						nlj.cost = p_left.cost + (p_left.cardinality * p_right.cost)
+						nlj.order = p_left.order // Preserves outer stream order!
+						prune_or_add_plan(opt, s, nlj)
+
+						// --- Operator C: Index Join ---
+						// If right child is an index scan matching the join key
+						if p_right.type == .Index_Scan && p_right.order == jp.c2 {
+							ij := make_plan(opt, .Index_Join)
+							ij.relations = s
+							ij.cardinality = card
+							ij.left = p_left
+							ij.right = p_right
+							// 3 B-Tree I/O lookups per left row
+							ij.cost = p_left.cost + (p_left.cardinality * (3.0 * PAGE_IO_COST + CPU_TUPLE_COST))
+							ij.order = p_left.order
+							prune_or_add_plan(opt, s, ij)
+						}
+					}
+				}
 			}
 		}
-		if !subsumed {
-			// Add min(v) to neighborhood
-			min_elem := get_min_node(candidates[i])
-			N |= (Node_Set(1) << u32(min_elem))
-		}
 	}
-	return N
 }
 
-/* --- DPhyp Context & Subroutines --- */
+/* --- Phase 3: Final Access Path & ORDER BY Resolution --- */
 
-DPhyp :: struct {
-	g:        ^Hyper_Graph,
-	dp_table: DP_Table,
-}
+find_best_plan :: proc(opt: ^Optimizer, required_order: Col_ID) -> ^Plan {
+	n := len(opt.query.tables)
+	all_nodes := (Node_Set(1) << u32(n)) - 1
+	plans := opt.dp_table[all_nodes]
 
-/* Section 3.5: emit_csg_cmp joins plans for S1 and S2 */
-emit_csg_cmp :: proc(ctx: ^DPhyp, S1, S2: Node_Set) {
-	p1 := ctx.dp_table[S1] or_else nil
-	p2 := ctx.dp_table[S2] or_else nil
-	if p1 == nil || p2 == nil do return
+	if len(plans) == 0 do return nil
 
-	S := S1 | S2
+	cheapest_overall: ^Plan = nil
+	cheapest_ordered: ^Plan = nil
 
-	// Calculate selectivity across all connecting hyperedges
-	sel: f64 = 1.0
-	for i in 0 ..< ctx.g.num_edges {
-		u := ctx.g.edges[i].u
-		v := ctx.g.edges[i].v
-		if ((u & S1) == u && (v & S2) == v) || ((v & S1) == v && (u & S2) == u) {
-			sel *= ctx.g.edges[i].selectivity
+	for p in plans {
+		if cheapest_overall == nil || p.cost < cheapest_overall.cost {
+			cheapest_overall = p
+		}
+		if p.order == required_order {
+			if cheapest_ordered == nil || p.cost < cheapest_ordered.cost {
+				cheapest_ordered = p
+			}
 		}
 	}
 
-	card := p1.cardinality * p2.cardinality * sel
-	// Standard C_out cost model
-	cost := p1.cost + p2.cost + card
+	if required_order == NO_ORDER do return cheapest_overall
 
-	existing := ctx.dp_table[S] or_else nil
-	if existing == nil || cost < existing.cost {
-		new_plan := new(Plan)
-		new_plan.relations = S
-		new_plan.cardinality = card
-		new_plan.cost = cost
-		new_plan.left = p1
-		new_plan.right = p2
-		ctx.dp_table[S] = new_plan
+	// Calculate cost if we take the cheapest overall plan and append an explicit Sort
+	sort_cost := cheapest_overall.cardinality * math.log2(cheapest_overall.cardinality) * SORT_FACTOR
+	total_plan_with_sort_cost := cheapest_overall.cost + sort_cost
+
+	// Did an naturally ordered plan win over doing an explicit sort?
+	if cheapest_ordered != nil && cheapest_ordered.cost <= total_plan_with_sort_cost {
+		return cheapest_ordered
 	}
+
+	// Otherwise, insert an explicit sort node over the cheapest plan
+	sort_node := make_plan(opt, .Sort)
+	sort_node.relations = all_nodes
+	sort_node.cardinality = cheapest_overall.cardinality
+	sort_node.cost = total_plan_with_sort_cost
+	sort_node.order = required_order
+	sort_node.left = cheapest_overall
+	return sort_node
 }
 
-/* Section 3.4: enumerate_cmp_rec */
-enumerate_cmp_rec :: proc(ctx: ^DPhyp, S1, S2, X_in: Node_Set) {
-	X := X_in
-	N_set := calc_neighborhood(ctx.g, S2, X)
+/* --- Plan Printer --- */
 
-	// Vance & Maier subset enumeration in ascending order
-	N := (0 - N_set) & N_set
-	for N != 0 {
-		if (S2 | N) in ctx.dp_table && is_connected(ctx.g, S1, S2 | N) {
-			emit_csg_cmp(ctx, S1, S2 | N)
-		}
-		N = (N - N_set) & N_set
-	}
-
-	X |= N_set
-
-	N = (0 - N_set) & N_set
-	for N != 0 {
-		enumerate_cmp_rec(ctx, S1, S2 | N, X)
-		N = (N - N_set) & N_set
-	}
-}
-
-/* Section 3.3: emit_csg */
-emit_csg :: proc(ctx: ^DPhyp, S1: Node_Set) {
-	min_s1 := get_min_node(S1)
-	X := S1 | get_B(min_s1)
-	N_set := calc_neighborhood(ctx.g, S1, X)
-
-	// Iterate over v in N descending
-	temp := N_set
-	for temp > 0 {
-		v_idx := 63 - int(bits.count_leading_zeros(temp))
-		v := Node_Set(1) << u32(v_idx)
-		temp &= ~v
-
-		S2 := v
-		if is_connected(ctx.g, S1, S2) {
-			emit_csg_cmp(ctx, S1, S2)
-		}
-		// Exclude nodes <= v in N to avoid duplicates
-		B_v_N := N_set & get_B(v_idx)
-		enumerate_cmp_rec(ctx, S1, S2, X | B_v_N)
-	}
-}
-
-/* Section 3.2: enumerate_csg_rec */
-enumerate_csg_rec :: proc(ctx: ^DPhyp, S1, X: Node_Set) {
-	N_set := calc_neighborhood(ctx.g, S1, X)
-
-	// First loop: emit connected subgraphs
-	N := (0 - N_set) & N_set
-	for N != 0 {
-		if (S1 | N) in ctx.dp_table {
-			emit_csg(ctx, S1 | N)
-		}
-		N = (N - N_set) & N_set
-	}
-
-	// Second loop: recursive expansion
-	N = (0 - N_set) & N_set
-	for N != 0 {
-		enumerate_csg_rec(ctx, S1 | N, X | N_set)
-		N = (N - N_set) & N_set
-	}
-}
-
-/* Section 3.1: solve */
-solve :: proc(ctx: ^DPhyp) -> ^Plan {
-	n := ctx.g.num_nodes
-	ctx.dp_table = make(DP_Table)
-
-	// Initialize dp_table with single relations
-	for i in 0 ..< n {
-		p := new(Plan)
-		p.relations = Node_Set(1) << u32(i)
-		p.cardinality = ctx.g.base_cardinalities[i]
-		p.cost = 0.0
-		p.left = nil
-		p.right = nil
-		ctx.dp_table[p.relations] = p
-	}
-
-	// Process nodes descending according to <
-	for i := n - 1; i >= 0; i -= 1 {
-		v := Node_Set(1) << u32(i)
-		emit_csg(ctx, v)
-		enumerate_csg_rec(ctx, v, get_B(i))
-	}
-
-	all_nodes := ~Node_Set(0) if n == 64 else (Node_Set(1) << u32(n)) - 1
-	return ctx.dp_table[all_nodes] or_else nil
-}
-
-/* --- Pretty Printing of Resulting Plan --- */
-
-print_plan :: proc(g: ^Hyper_Graph, p: ^Plan) {
+print_plan :: proc(p: ^Plan, tables: []Table, depth := 0) {
 	if p == nil do return
-	if p.left == nil && p.right == nil {
-		idx := get_min_node(p.relations)
-		fmt.printf("%s", g.node_names[idx])
-		return
+
+	for _ in 0 ..< depth do fmt.print("  ")
+
+	switch p.type {
+	case .Seq_Scan:
+		fmt.printf("-> SeqScan(%s) [Card: %.0f, Cost: %.2f]\n", 
+			tables[p.table_id].name, p.cardinality, p.cost)
+	case .Index_Scan:
+		fmt.printf("-> IndexScan(%s via %s, Order: Col %d) [Card: %.0f, Cost: %.2f]\n", 
+			tables[p.table_id].name, p.index_name, p.order, p.cardinality, p.cost)
+	case .Hash_Join:
+		fmt.printf("-> HashJoin [Card: %.0f, Cost: %.2f]\n", p.cardinality, p.cost)
+		print_plan(p.left, tables, depth + 1)
+		print_plan(p.right, tables, depth + 1)
+	case .Nested_Loop_Join:
+		fmt.printf("-> NestedLoopJoin [Card: %.0f, Cost: %.2f, PreservedOrder: %d]\n", 
+			p.cardinality, p.cost, p.order)
+		print_plan(p.left, tables, depth + 1)
+		print_plan(p.right, tables, depth + 1)
+	case .Index_Join:
+		fmt.printf("-> IndexJoin [Card: %.0f, Cost: %.2f, PreservedOrder: %d]\n", 
+			p.cardinality, p.cost, p.order)
+		print_plan(p.left, tables, depth + 1)
+		print_plan(p.right, tables, depth + 1)
+	case .Sort:
+		fmt.printf("-> ExplicitSort(Order: Col %d) [Cost: %.2f]\n", p.order, p.cost)
+		print_plan(p.left, tables, depth + 1)
 	}
-	fmt.printf("(")
-	print_plan(g, p.left)
-	fmt.printf(" ⨝ ")
-	print_plan(g, p.right)
-	fmt.printf(")")
 }
 
-/* --- Example: Hypergraph from Figure 2 in the paper --- */
-
-add_edge :: proc(g: ^Hyper_Graph, u_mask, v_mask: Node_Set, sel: f64) {
-	g.edges[g.num_edges].u = u_mask
-	g.edges[g.num_edges].v = v_mask
-	g.edges[g.num_edges].selectivity = sel
-	g.num_edges += 1
-}
+/* --- Driver / Verification Example --- */
 
 main :: proc() {
-	g: Hyper_Graph
-	g.num_nodes = 6
+	// 1. Setup Arena Allocator (Zero Memory Leaks)
+	arena_buf := make([]u8, 16 * mem.Megabyte)
+	defer delete(arena_buf)
+	
+	arena: mem.Arena
+	mem.arena_init(&arena, arena_buf)
 
-	names := [6]string{"R1", "R2", "R3", "R4", "R5", "R6"}
-	for i in 0 ..< 6 {
-		g.node_names[i] = names[i]
-		g.base_cardinalities[i] = 1000.0 * f64(i + 1) // 1K, 2K, ..., 6K tuples
+	opt := Optimizer{
+		arena     = arena,
+		allocator = mem.arena_allocator(&arena),
+		dp_table  = make(map[Node_Set][dynamic]^Plan),
 	}
 
-	g.num_edges = 0
+	// 2. Define Schema
+	// Columns:
+	// users.id = 0
+	// orders.user_id = 0, orders.id = 1
+	// lineitem.order_id = 1
+	COL_USERS_ID     :: 0
+	COL_ORDERS_USERID :: 0
+	COL_ORDERS_ID     :: 1
+	COL_LINEITEM_OID  :: 1
 
-	// Simple edges: ({R1}, {R2}), ({R2}, {R3}), ({R4}, {R5}), ({R5}, {R6})
-	add_edge(&g, 1 << 0, 1 << 1, 0.01)
-	add_edge(&g, 1 << 1, 1 << 2, 0.01)
-	add_edge(&g, 1 << 3, 1 << 4, 0.01)
-	add_edge(&g, 1 << 4, 1 << 5, 0.01)
-
-	// Hyperedge: ({R1, R2, R3}, {R4, R5, R6})
-	// Corresponding to: R1.a + R2.b + R3.c = R4.d + R5.e + R6.f
-	u_hyper := Node_Set((1 << 0) | (1 << 1) | (1 << 2))
-	v_hyper := Node_Set((1 << 3) | (1 << 4) | (1 << 5))
-	add_edge(&g, u_hyper, v_hyper, 0.005)
-
-	ctx: DPhyp
-	ctx.g = &g
-
-	fmt.println("Executing DPhyp for Figure 2 query hypergraph...")
-	best_plan := solve(&ctx)
-	defer delete(ctx.dp_table)
-
-	if best_plan != nil {
-		fmt.printf("\nOptimal Join Plan:\n  ")
-		print_plan(&g, best_plan)
-		fmt.printf("\nEstimated Cost:        %.2f\n", best_plan.cost)
-		fmt.printf("Estimated Cardinality: %.2f\n", best_plan.cardinality)
-	} else {
-		fmt.println("No plan found (query hypergraph is disconnected).")
+	users := Table{
+		id = 0, name = "users", row_count = 10_000, pages = 200,
+		indexes = make([dynamic]Index, opt.allocator),
 	}
+	append(&users.indexes, Index{name = "idx_users_pk", col = COL_USERS_ID, clustered = true, pages = 30})
+
+	orders := Table{
+		id = 1, name = "orders", row_count = 100_000, pages = 2_000,
+		indexes = make([dynamic]Index, opt.allocator),
+	}
+	append(&orders.indexes, Index{name = "idx_orders_uid", col = COL_ORDERS_USERID, clustered = false, pages = 250})
+
+	lineitem := Table{
+		id = 2, name = "lineitem", row_count = 500_000, pages = 10_000,
+		indexes = make([dynamic]Index, opt.allocator),
+	}
+	append(&lineitem.indexes, Index{name = "idx_lineitem_oid", col = COL_LINEITEM_OID, clustered = false, pages = 1_200})
+
+	// 3. Define Query: users ⨝ orders ⨝ lineitem WITH ORDER BY users.id
+	query := Query{
+		tables             = make([dynamic]Table, opt.allocator),
+		joins              = make([dynamic]Join_Predicate, opt.allocator),
+		interesting_orders = make([dynamic]Col_ID, opt.allocator),
+	}
+	append(&query.tables, users, orders, lineitem)
+
+	// users.id = orders.user_id
+	append(&query.joins, Join_Predicate{t1 = 0, c1 = COL_USERS_ID, t2 = 1, c2 = COL_ORDERS_USERID, selectivity = 0.0001})
+	// orders.id = lineitem.order_id
+	append(&query.joins, Join_Predicate{t1 = 1, c1 = COL_ORDERS_ID, t2 = 2, c2 = COL_LINEITEM_OID, selectivity = 0.00002})
+
+	// Query requires output sorted by users.id (e.g. ORDER BY users.id)
+	append(&query.interesting_orders, COL_USERS_ID)
+
+	opt.query = &query
+
+	// 4. Run System R Optimizer
+	fmt.println("Optimizing query with System R (Selinger)...")
+	enumerate_single_relations(&opt)
+	enumerate_joins(&opt)
+
+	best_plan := find_best_plan(&opt, COL_USERS_ID)
+
+	fmt.println("\nGenerated Optimal Execution Plan:")
+	print_plan(best_plan, query.tables[:])
 }
-/*
-output
-Optimal Join Plan:
-  (((R1 ⨝ R2) ⨝ R3) ⨝ ((R4 ⨝ R5) ⨝ R6))
-Estimated Cost:        36012820000.00
-Estimated Cardinality: 36000000000.00
-
-
-*/
