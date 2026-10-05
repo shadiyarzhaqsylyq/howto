@@ -5,31 +5,6 @@ import "core:mem"
 import "core:sys/linux"
 
 main :: proc() {
-/*
-    // 1. Length for linux.mmap must be of type 'uint'
-    size: uint = 64 * mem.Megabyte
-
-    // 2. Pass 0 instead of nil for uintptr
-    ptr, err := linux.mmap(
-        0,                                   // addr: uintptr
-        size,                                // length: uint
-        {.READ, .WRITE},                     // prot
-        {.PRIVATE, .ANONYMOUS},              // flags
-        -1,                                  // fd
-        0,                                   // offset
-    )
-
-    // 3. linux.Errno compares against nil (or .NONE)
-    if err != nil {
-        fmt.eprintln("mmap failed:", err)
-        return
-    }
-    defer linux.munmap(ptr, size)
-
-    // 4. Convert pointer to slice (slice indexing requires 'int')
-    mapped_slice := ([^]byte)(ptr)[:int(size)]
-*/
-
 size: uint = 64 * mem.Megabyte
 
 // 2. Pass 0 instead of nil for uintptr
@@ -51,6 +26,7 @@ defer linux.munmap(ptr, size)
 
 // 4. Convert pointer to slice (Requires explicit cast from rawptr to [^]byte)
 mapped_slice := (cast([^]byte)ptr)[:size]
+
 
     // 5. Initialize the arena with your mmap'd memory
     arena: mem.Arena
