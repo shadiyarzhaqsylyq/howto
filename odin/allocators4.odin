@@ -4,6 +4,20 @@ import "core:fmt"
 import "core:mem"
 import "core:mem/virtual"
 
+Table_Slot :: struct {
+    page_id:  u64,
+    frame_id: u32,
+    psl:      u8,
+}
+
+init_page_table :: proc(slot_count: int) -> []Table_Slot {
+    bytes := slot_count * size_of(Table_Slot)
+    mem, err := virtual.reserve_and_commit(bytes)
+    if err != nil do panic("Failed to allocate page table")
+    return ([^]Table_Slot)(raw_data(mem))[:slot_count]
+}
+
+
 main :: proc() {
     // 1. Allocate backing buffer directly from the OS (no heap/malloc overhead)
     size := uint(16 * mem.Megabyte)
