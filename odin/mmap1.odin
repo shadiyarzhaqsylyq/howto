@@ -25,7 +25,7 @@ if err != nil {
 defer linux.munmap(ptr, size)
 
 // 4. Convert pointer to slice (Requires explicit cast from rawptr to [^]byte)
-mapped_slice := (cast([^]byte)ptr)[:size]
+mapped_slice := (cast([^]byte)ptr)[:int(size)]
 
 
     // 5. Initialize the arena with your mmap'd memory
