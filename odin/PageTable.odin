@@ -2,7 +2,6 @@ package buffer_pool
 
 import "core:sync"
 
-PAGE_SIZE :: 8192
 
 Page_ID  :: distinct u32
 Frame_ID :: distinct u32
