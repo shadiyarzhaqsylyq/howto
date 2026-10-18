@@ -22,6 +22,16 @@ import "core:fmt"
 Page_ID  :: distinct u64
 Frame_ID :: distinct u32
 
+NUM_PARTITIONS :: 16
+SLOTS_PER_PART :: 32
+
+
+partition  := h & (NUM_PARTITIONS - 1)               // h & 15
+home_slot  := (h >> 4) & (SLOTS_PER_PART - 1)        // (h >> 4) & 31
+pos := home_slot
+pos = (pos + 1) & 31
+
+
 Slot_State :: enum u8 {
 	EMPTY,
 	OCCUPIED,
