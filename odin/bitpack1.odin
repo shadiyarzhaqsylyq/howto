@@ -8,30 +8,23 @@ Page_ID :: distinct u64
 NUM_PARTITIONS :: 16
 SLOTS_PER_PART :: 32
 
-
-
-
 // 1. GENERATE Page_ID (Bit Packing)
-
 make_page_id :: #force_inline proc(table_id: u32, page_num: u32) -> Page_ID {
     return Page_ID((u64(table_id) << 32) | u64(page_num))
 }
 
 // 2. EXTRACT TableID (Shift right by 32 bits)
-
 get_table_id :: #force_inline proc(id: Page_ID) -> u32 {
     return u32(u64(id) >> 32)
 }
 
 // 3. EXTRACT PageNO (Truncate to 32 bits)
-
 get_page_num :: #force_inline proc(id: Page_ID) -> u32 {
     return u32(id)
 }
 
 // Fast 64-bit bit-mixer (SplitMix64)
 // Note: In Odin, '~' is the bitwise XOR operator (not '^')
-
 hash :: #force_inline proc(page_id: Page_ID) -> u64 {
     z := u64(page_id) + 0x9e37_79b9_7f4a_7c15 // Golden ratio constant
     z = (z ~ (z >> 30)) * 0xbf58_476d_1ce4_e5b9
@@ -60,17 +53,18 @@ main :: proc() {
     bucket_index := get_bucket_index(page_id, num_buckets)
 
     h := hash(page_id)
-    partition  := h & (NUM_PARTITIONS - 1)               // h & 15
+    partition  := h & (NUM_PARTITIONS - 1)            // h & 15
     home_slot  := (h >> 4) & (SLOTS_PER_PART - 1)        // (h >> 4) & 31
-    pos := home_slot
+    pos := home_slot
     pos_next := (pos + 1) & 31
-    
-    fmt.printfln("PageID       = %v", page_id)
-    fmt.printfln("TableID      = %v", table)
-    fmt.printfln("Page Number  = %v", pagenum)
-    fmt.printfln("Hash       = %v", h)
-    fmt.printfln("Partition       = %v", partition)
-    fmt.printfln("Home_Slot       = %v", home_slot)
-    fmt.printfln("pos       = %v", pos)
+    
+    fmt.printfln("PageID      = %v", page_id)
+    fmt.printfln("TableID     = %v", table)
+    fmt.printfln("Page Number = %v", pagenum)
+    fmt.printfln("Hash      = %v", h)
+    fmt.printfln("Partition       = %v", partition)
+    fmt.printfln("Home_Slot       = %v", home_slot)
+    fmt.printfln("pos       = %v", pos)
+    fmt.printfln("pos_next       = %v", pos_next)
     fmt.printfln("Bucket Index = %v", bucket_index)
 }
