@@ -31,41 +31,13 @@ hash_combine :: #force_inline proc(h1, h2: u64) -> u64 {
 // 1. Mixed Key
 // 2 columns
 // JOIN ON a.tenant_id = b.tenant_id AND a.dept = b.dept
-hash_mixed_with_string1 :: proc(tenant_id: u64, dept: string, seed: u64 = 0) -> u64 {
+hash_mixed_with_string :: proc(tenant_id: u64, dept: string, seed: u64 = 0) -> u64 {
 	h_str := xxhash.XXH64(transmute([]u8)dept, seed)
 	h_int := splitmix64(tenant_id)
 	return hash_combine(h_int, h_str)
 }
 
-// 3 columns
-// JOIN ON a.order_id = b.order_id AND a.user_id = b.user_id AND a.dept = b.dept
-hash_mixed_with_string2 :: proc(key: ^Short_Composite_Key, dept: string, seed: u64 = 0) -> u64 {
-    // 1. Hash the string once
-    h_str := xxhash.XXH64(transmute([]u8)dept, seed)
 
-    // 2. Combine the two integer columns directly (1 pass)
-    h_fixed := hash_combine(key.order_id, key.user_id)
-
-    // 3. Combine fixed part with the string hash
-    return hash_combine(h_fixed, h_str)
-}
-
-// 2. Short Fixed Key (<= 16B)
-// JOIN ON a.order_id = b.order_id AND a.user_id = b.user_id
-Short_Composite_Key :: struct {
-	order_id: u64,
-	user_id:  u64,
-}
-
-hash_short_composite :: proc(key: ^Short_Composite_Key) -> u64 {
-	h1 := splitmix64(key.order_id)
-	h2 := splitmix64(key.user_id)
-	return hash_combine(h1, h2)
-}
-//Alternative
-hash_short_composite2 :: #force_inline proc(key: ^Short_Composite_Key) -> u64 {
-	return hash_combine(key.order_id, key.user_id)
-}
 
 
 
@@ -75,42 +47,30 @@ main :: proc() {
 	
 
     // 1. Single int join
-    h2 := splitmix64(100921)
-    bucket1 := get_bucket_index(h2, CAPACITY)
-
-    // 2. Composite fixed join
-    short_key := Short_Composite_Key{order_id = 1001, user_id = 9999}
-    h3 := hash_short_composite(&short_key)
-    bucket2 := get_bucket_index(h3, CAPACITY)
+    h1 := splitmix64(100921)
+    bucket1 := get_bucket_index(h1, CAPACITY)
 
     // 3. Mixed key join (fixed + string)
-    h4 := hash_mixed_with_string1(1002, "engineering")
-    bucket3 := get_bucket_index(h4, CAPACITY)
+    h2 := hash_mixed_with_string(1002, "engineering")
+    bucket2 := get_bucket_index(h2, CAPACITY)
 
     fmt.printfln("Single Int Bucket:      %d", bucket1)
-    fmt.printfln("Composite Fixed Bucket: %d", bucket2)
-    fmt.printfln("Mixed String Bucket:    %d", bucket3)
+    fmt.printfln("Mixed String Bucket:    %d", bucket2)
 
 
 
-	key1 := Short_Composite_Key{order_id = 1001, user_id = 9999}
+	
     dept1 := "engineering"
-
-    // Row 2 from Table B (exact match)
-    key2 := Short_Composite_Key{order_id = 1001, user_id = 9999}
     dept2 := "engineering"
-
-    // Row 3 from Table C (different department)
-    key3 := Short_Composite_Key{order_id = 1001, user_id = 9999}
     dept3 := "marketing"
 
-    h5 := hash_mixed_with_string2(&key1, dept1)//h4,h5,h6
-    h6 := hash_mixed_with_string2(&key2, dept2)
-    h7 := hash_mixed_with_string2(&key3, dept3)
+    h3 := hash_mixed_with_string(1001, dept1)//h4,h5,h6
+    h4 := hash_mixed_with_string(1001, dept2)
+    h7 := hash_mixed_with_string(1001, dept3)
 
-    fmt.printfln("Row 1 Hash: 0x%016x", h5)
-    fmt.printfln("Row 2 Hash: 0x%016x (Matches Row 1: %v)", h6, h5 == h6)
-    fmt.printfln("Row 3 Hash: 0x%016x (Matches Row 1: %v)", h7, h5 == h7)
+    fmt.printfln("Row 1 Hash: 0x%016x", h3)
+    fmt.printfln("Row 2 Hash: 0x%016x (Matches Row 1: %v)", h4, h3 == h4)
+    fmt.printfln("Row 3 Hash: 0x%016x (Matches Row 1: %v)", h5, h3 == h5)
 
 
 
