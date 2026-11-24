@@ -9,297 +9,260 @@ to get them closer to their intended spot, reducing the distance(and obviating t
 */
 package main
 
+import "base:intrinsics"
 import "core:fmt"
+import "core:hash"
 import "core:mem"
 
-PageID  :: distinct u64
-FrameID :: distinct u32
-
-INVALID_PAGE_ID:  PageID  : ~PageID(0)
-INVALID_FRAME_ID: FrameID : ~FrameID(0)
-MAX_LOAD_FACTOR           : f64 : 0.75
-
-// Bit-packing utilities
-make_page_id :: #force_inline proc(table_id: u32, page_num: u32) -> PageID {
-	return PageID((u64(table_id) << 32) | u64(page_num))
+Entry :: struct($K, $V: typeid) {
+	key:   K,
+	value: V,
+	psl:   u32, // 0 = empty; >= 1 = occupied (distance from ideal slot is psl - 1)
 }
 
-get_table_id :: #force_inline proc(id: PageID) -> u32 {
-	return u32(u64(id) >> 32)
-}
-
-get_page_num :: #force_inline proc(id: PageID) -> u32 {
-	return u32(id)
-}
-
-// Rounds up to the nearest power of 2
-next_pow2 :: proc(n: uint) -> uint {
-	if n <= 16 do return 16
-	x := n - 1
-	x |= x >> 1
-	x |= x >> 2
-	x |= x >> 4
-	x |= x >> 8
-	x |= x >> 16
-	x |= x >> 32
-	return x + 1
-}
-//Alternative
-package main
-
-import "core:math/bits"
-
-// 2 * size_of(rawptr) evaluates to 16 on 64-bit platforms
-DEFAULT_ALIGNMENT :: 2 * size_of(rawptr)
-
-is_power_of_two :: proc(x: uintptr) -> bool {
-	// Odin handles bitwise operations natively on uintptr
-	return x > 0 && (x & (x - 1)) == 0
-}
-
-align_forward :: proc(ptr: uintptr, align: uintptr) -> uintptr {
-	// Replacing asserts: Odin has a built-in 'assert' in the runtime
-	assert(is_power_of_two(align), "Alignment must be a power of two")
-	
-	// Ultra-fast branchless math: rounds up to the next multiple of 'align'
-	return (ptr + align - 1) & ~(align - 1)
-}
-// Alternative
-
-// 64-bit SplitMix64 Hash Mixer
-hash_page_id :: #force_inline proc(key: PageID) -> u64 {
-	x := u64(key)
-	x = (x ~ (x >> 30)) * 0xbf58476d1ce4e5b9
-	x = (x ~ (x >> 27)) * 0x94d049bb133111eb
-	x = x ~ (x >> 31)
-	return x
-}
-
-// 16-byte slot: 4 slots align perfectly to 64-byte CPU cache lines
-HashSlot :: struct {
-	page_id:  PageID,  // 8 bytes
-	frame_id: FrameID, // 4 bytes
-	dib:      u32,     // 4 bytes: Distance from Initial Bucket
-}
-
-PageTable :: struct {
-	slots:     []HashSlot,
-	capacity:  uint, // Always a power of 2
-	mask:      uint, // capacity - 1
-	count:     uint,
+Robin_Hood_Table :: struct($K, $V: typeid) where intrinsics.type_is_comparable(K) {
+	entries:   []Entry(K, V),
+	count:     int,
 	allocator: mem.Allocator,
 }
 
-// Helper for allocating 64-byte cache-aligned slot slices
-allocate_slots :: proc(capacity: uint, allocator := context.allocator) -> []HashSlot {
-	// Allocate a slice with 64-byte alignment to match CPU cache lines
-	slots, err := mem.make_aligned([]HashSlot, int(capacity), 64, allocator)
-	if err != nil do return nil
-
-	for i in 0 ..< capacity {
-		slots[i] = HashSlot{
-			page_id  = INVALID_PAGE_ID,
-			frame_id = INVALID_FRAME_ID,
-			dib      = 0,
-		}
+@(private)
+next_power_of_two :: proc(n: int) -> int {
+	if n <= 8 do return 8
+	p := 8
+	for p < n {
+		p *= 2
 	}
-	return slots
+	return p
 }
 
-free_slots :: proc(slots: []HashSlot, allocator := context.allocator) {
-	delete(slots, allocator)
-}
-
-page_table_create :: proc(initial_capacity: uint, allocator := context.allocator) -> ^PageTable {
-	pt := new(PageTable, allocator)
-	if pt == nil do return nil
-
-	pt.allocator = allocator
-	pt.capacity = next_pow2(initial_capacity)
-	pt.mask = pt.capacity - 1
-	pt.count = 0
-	pt.slots = allocate_slots(pt.capacity, allocator)
-
-	if pt.slots == nil {
-		free(pt, allocator)
-		return nil
-	}
-
-	return pt
-}
-
-page_table_destroy :: proc(pt: ^PageTable) {
-	if pt == nil do return
-	allocator := pt.allocator
-	free_slots(pt.slots, allocator)
-	free(pt, allocator)
-}
-
-// LOOKUP: O(1) average, with early-exit on smaller DIB
-page_table_lookup :: proc(pt: ^PageTable, page_id: PageID) -> (FrameID, bool) {
-	idx := uint(hash_page_id(page_id)) & pt.mask
-	cur_dib: u32 = 0
-
-	for {
-		slot := &pt.slots[idx]
-
-		if slot.page_id == INVALID_PAGE_ID || slot.dib < cur_dib {
-			return 0, false // Not found or passed insertion point
+@(private)
+hash_key :: proc(key: $K) -> u64 {
+	when K == string {
+		return hash.fnv64a(transmute([]u8)key)
+	} else when K == cstring {
+		return hash.fnv64a(transmute([]u8)string(key))
+	} else {
+		k := key
+		when intrinsics.type_is_float(K) {
+			if k == 0 do k = 0
 		}
-
-		if slot.page_id == page_id {
-			return slot.frame_id, true
-		}
-
-		cur_dib += 1
-		idx = (idx + 1) & pt.mask
+		bytes := ([^]u8)(&k)[:size_of(K)]
+		return hash.fnv64a(bytes)
 	}
 }
 
-// Internal raw insertion helper (without load factor check)
-page_table_insert_raw :: proc(slots: []HashSlot, mask: uint, incoming: HashSlot) {
-	inc := incoming
-	idx := uint(hash_page_id(inc.page_id)) & mask
-
-	for {
-		slot := &slots[idx]
-
-		if slot.page_id == INVALID_PAGE_ID {
-			slot^ = inc
-			return
-		}
-
-		if slot.page_id == inc.page_id {
-			slot.frame_id = inc.frame_id
-			return
-		}
-
-		// Steal from the rich
-		if inc.dib > slot.dib {
-			temp := slot^
-			slot^ = inc
-			inc = temp
-		}
-
-		inc.dib += 1
-		idx = (idx + 1) & mask
+rh_init :: proc(
+	ht: ^Robin_Hood_Table($K, $V),
+	initial_cap := 8,
+	allocator := context.allocator,
+) -> mem.Allocator_Error {
+	cap := next_power_of_two(initial_cap)
+	ht.allocator = allocator
+	ht.count = 0
+	entries, err := make([]Entry(K, V), cap, allocator)
+	if err != nil {
+		return err
 	}
+	ht.entries = entries
+	return nil
 }
 
-// Automatically double table capacity when load factor threshold is met
-page_table_resize :: proc(pt: ^PageTable, new_capacity: uint) -> bool {
-	new_slots := allocate_slots(new_capacity, pt.allocator)
-	if new_slots == nil do return false
-
-	new_mask := new_capacity - 1
-
-	// Rehash and migrate existing slots
-	for i in 0 ..< pt.capacity {
-		if pt.slots[i].page_id != INVALID_PAGE_ID {
-			slot := pt.slots[i]
-			slot.dib = 0 // Reset DIB for new hash placement
-			page_table_insert_raw(new_slots, new_mask, slot)
-		}
-	}
-
-	free_slots(pt.slots, pt.allocator)
-	pt.slots = new_slots
-	pt.capacity = new_capacity
-	pt.mask = new_mask
-
-	return true
+rh_destroy :: proc(ht: ^Robin_Hood_Table($K, $V)) {
+	delete(ht.entries, ht.allocator)
+	ht.entries = nil
+	ht.count = 0
 }
 
-// INSERT / UPDATE
-page_table_insert :: proc(pt: ^PageTable, page_id: PageID, frame_id: FrameID) -> bool {
-	// 1. If key already exists, update in-place without triggering resize
-	if _, ok := page_table_lookup(pt, page_id); ok {
-		idx := uint(hash_page_id(page_id)) & pt.mask
-		for pt.slots[idx].page_id != page_id {
-			idx = (idx + 1) & pt.mask
-		}
-		pt.slots[idx].frame_id = frame_id
-		return true
-	}
-
-	// 2. Check load factor threshold (grow table before inserting if needed)
-	if f64(pt.count + 1) / f64(pt.capacity) > MAX_LOAD_FACTOR {
-		if !page_table_resize(pt, pt.capacity * 2) {
-			return false // Re-allocation failed
-		}
-	}
-
-	// 3. Insert new item
-	incoming := HashSlot{
-		page_id  = page_id,
-		frame_id = frame_id,
-		dib      = 0,
-	}
-
-	page_table_insert_raw(pt.slots, pt.mask, incoming)
-	pt.count += 1
-	return true
+rh_clear :: proc(ht: ^Robin_Hood_Table($K, $V)) {
+	mem.zero_slice(ht.entries)
+	ht.count = 0
 }
 
-// DELETE: Backward-shift deletion (avoids tombstones)
-page_table_delete :: proc(pt: ^PageTable, page_id: PageID) -> bool {
-	idx := uint(hash_page_id(page_id)) & pt.mask
-	cur_dib: u32 = 0
-
-	// Search for key
-	for {
-		slot := &pt.slots[idx]
-		if slot.page_id == INVALID_PAGE_ID || slot.dib < cur_dib {
-			return false // Key not present
-		}
-		if slot.page_id == page_id {
-			break
-		}
-		cur_dib += 1
-		idx = (idx + 1) & pt.mask
+@(private)
+rh_rehash :: proc(ht: ^Robin_Hood_Table($K, $V), new_cap: int) -> mem.Allocator_Error {
+	new_cap := next_power_of_two(new_cap)
+	new_entries, err := make([]Entry(K, V), new_cap, ht.allocator)
+	if err != nil {
+		return err
 	}
 
-	// Backward shift subsequent items to fill the gap
-	for {
-		next_idx := (idx + 1) & pt.mask
-		next_slot := &pt.slots[next_idx]
+	mask := u64(new_cap - 1)
+	for &old in ht.entries {
+		if old.psl == 0 do continue
 
-		if next_slot.page_id == INVALID_PAGE_ID || next_slot.dib == 0 {
-			pt.slots[idx].page_id = INVALID_PAGE_ID
-			pt.slots[idx].frame_id = INVALID_FRAME_ID
-			pt.slots[idx].dib = 0
-			break
+		incoming := Entry(K, V){
+			key   = old.key,
+			value = old.value,
+			psl   = 1,
 		}
+		idx := int(hash_key(incoming.key) & mask)
 
-		pt.slots[idx] = next_slot^
-		pt.slots[idx].dib -= 1
-		idx = next_idx
+		for {
+			entry := &new_entries[idx]
+			if entry.psl == 0 {
+				entry^ = incoming
+				break
+			}
+			if incoming.psl > entry.psl {
+				incoming, entry^ = entry^, incoming
+			}
+			incoming.psl += 1
+			idx = (idx + 1) & int(mask)
+		}
 	}
 
-	pt.count -= 1
-	return true
+	delete(ht.entries, ht.allocator)
+	ht.entries = new_entries
+	return nil
+}
+
+rh_put :: proc(ht: ^Robin_Hood_Table($K, $V), key: K, value: V) -> mem.Allocator_Error {
+	if len(ht.entries) == 0 {
+		alloc := ht.allocator
+		if alloc.procedure == nil {
+			alloc = context.allocator
+		}
+		rh_init(ht, 8, alloc) or_return
+	} else if (ht.count + 1) * 4 > len(ht.entries) * 3 {
+		// Grow at 75% load factor (no tombstones to worry about)
+		rh_rehash(ht, len(ht.entries) * 2) or_return
+	}
+
+	incoming := Entry(K, V){
+		key   = key,
+		value = value,
+		psl   = 1,
+	}
+
+	mask := u64(len(ht.entries) - 1)
+	idx := int(hash_key(key) & mask)
+	swapped := false
+
+	for _ in 0..<len(ht.entries) {
+		entry := &ht.entries[idx]
+
+		// Empty slot found
+		if entry.psl == 0 {
+			entry^ = incoming
+			ht.count += 1
+			return nil
+		}
+
+		// Update existing key (cannot happen once a Robin Hood swap has occurred)
+		if !swapped && entry.key == incoming.key {
+			entry.value = incoming.value
+			return nil
+		}
+
+		// Rob from the rich: steal the slot if incoming traveled farther
+		if incoming.psl > entry.psl {
+			incoming, entry^ = entry^, incoming
+			swapped = true
+		}
+
+		incoming.psl += 1
+		idx = (idx + 1) & int(mask)
+	}
+
+	return nil
+}
+
+rh_get_ptr :: proc(ht: ^Robin_Hood_Table($K, $V), key: K) -> ^V {
+	if len(ht.entries) == 0 || ht.count == 0 do return nil
+
+	mask := u64(len(ht.entries) - 1)
+	idx := int(hash_key(key) & mask)
+	psl: u32 = 1
+
+	for _ in 0..<len(ht.entries) {
+		entry := &ht.entries[idx]
+
+		// Early exit: if slot is empty OR occupant is closer to home than our probe,
+		// the key cannot exist further down the chain.
+		if entry.psl == 0 || psl > entry.psl {
+			return nil
+		}
+
+		if entry.key == key {
+			return &entry.value
+		}
+
+		psl += 1
+		idx = (idx + 1) & int(mask)
+	}
+	return nil
+}
+
+rh_get :: proc(ht: ^Robin_Hood_Table($K, $V), key: K) -> (value: V, ok: bool) {
+	ptr := rh_get_ptr(ht, key)
+	if ptr == nil do return {}, false
+	return ptr^, true
+}
+
+rh_contains :: proc(ht: ^Robin_Hood_Table($K, $V), key: K) -> bool {
+	return rh_get_ptr(ht, key) != nil
+}
+
+rh_remove :: proc(ht: ^Robin_Hood_Table($K, $V), key: K) -> bool {
+	if len(ht.entries) == 0 || ht.count == 0 do return false
+
+	mask := u64(len(ht.entries) - 1)
+	idx := int(hash_key(key) & mask)
+	psl: u32 = 1
+
+	for _ in 0..<len(ht.entries) {
+		entry := &ht.entries[idx]
+		if entry.psl == 0 || psl > entry.psl {
+			return false
+		}
+
+		if entry.key == key {
+			// Backward-shift deletion: pull subsequent displaced entries back by 1
+			for {
+				next_idx := (idx + 1) & int(mask)
+				next_entry := &ht.entries[next_idx]
+				if next_entry.psl <= 1 {
+					// Stop when hitting an empty slot (0) or an entry in its ideal slot (1)
+					ht.entries[idx] = {}
+					break
+				}
+				ht.entries[idx] = next_entry^
+				ht.entries[idx].psl -= 1
+				idx = next_idx
+			}
+			ht.count -= 1
+			return true
+		}
+
+		psl += 1
+		idx = (idx + 1) & int(mask)
+	}
+	return false
 }
 
 main :: proc() {
-	pt := page_table_create(16)
-	defer page_table_destroy(pt)
+	ht: Robin_Hood_Table(string, int)
+	defer rh_destroy(&ht)
 
-	// Insert elements to trigger auto-resizing
-	for i in 0 ..< u32(50) {
-		pid := make_page_id(1, i)
-		page_table_insert(pt, pid, FrameID(i * 10))
+	words := []string{"alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta"}
+	for w, i in words {
+		rh_put(&ht, w, (i + 1) * 10)
 	}
 
-	fmt.printf("Table count: %d, capacity: %d\n", pt.count, pt.capacity)
+	rh_put(&ht, "gamma", 999) // Update
+	rh_remove(&ht, "beta")    // Backward-shift delete (no tombstones)
 
-	target := make_page_id(1, 25)
-	if frame, ok := page_table_lookup(pt, target); ok {
-		fmt.printf("Page 25 found at Frame %d\n", frame)
+	if val, ok := rh_get(&ht, "gamma"); ok {
+		fmt.println("gamma =", val)
 	}
+	fmt.println("contains beta?", rh_contains(&ht, "beta"))
 
-	// Delete item
-	page_table_delete(pt, target)
-	if _, ok := page_table_lookup(pt, target); !ok {
-		fmt.println("Page 25 successfully deleted.")
+	fmt.printf("Count: %d, Capacity: %d\n", ht.count, len(ht.entries))
+	for entry, slot in ht.entries {
+		if entry.psl > 0 {
+			fmt.printf("  slot %2d: %-8s -> %3d (probe dist: %d)\n",
+				slot, entry.key, entry.value, entry.psl - 1)
+		}
 	}
 }
